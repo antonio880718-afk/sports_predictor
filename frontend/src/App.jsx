@@ -47,7 +47,7 @@ function App() {
     setLoading(true)
     try {
       const sportId = sport === 'LMB' ? 23 : 1
-      const response = await fetch(`http://localhost:8000/api/ai/performance?sport_id=${sportId}`)
+      const response = await fetch(`https://sports-predictor-y4mq.onrender.com/api/ai/performance?sport_id=${sportId}`)
       const data = await response.json()
       setPerformance(data)
     } catch (error) {
@@ -62,7 +62,7 @@ function App() {
   const fetchGames = async (sport, league = "all") => {
     setLoading(true)
     try {
-      let url = `http://localhost:8000/api/${sport.toLowerCase()}/today`
+      let url = `https://sports-predictor-y4mq.onrender.com/api/${sport.toLowerCase()}/today`
       if (sport === 'SOCCER') {
           url += `?league=${league}`
       }
@@ -86,7 +86,7 @@ function App() {
     }
     setLoading(true)
     try {
-      const response = await fetch(`http://localhost:8000/api/${sport.toLowerCase()}/history?date=${dateStr}`)
+      const response = await fetch(`https://sports-predictor-y4mq.onrender.com/api/${sport.toLowerCase()}/history?date=${dateStr}`)
       const data = await response.json()
       setHistory(data.results || [])
       setApiMessage(data.message || "")
@@ -99,7 +99,7 @@ function App() {
 
   const fetchTrainingLogs = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/ai/training_logs')
+      const response = await fetch('https://sports-predictor-y4mq.onrender.com/api/ai/training_logs')
       const data = await response.json()
       setTrainingLogs(data.logs || [])
     } catch (error) {
@@ -122,7 +122,7 @@ function App() {
     setLearningReport(null)
     try {
       const qs = activeTab === 'AUDITORIA' ? `?date=${auditDate}` : ""
-      const response = await fetch(`http://localhost:8000/api/${activeSport.toLowerCase()}/learn${qs}`, { method: 'POST' })
+      const response = await fetch(`https://sports-predictor-y4mq.onrender.com/api/${activeSport.toLowerCase()}/learn${qs}`, { method: 'POST' })
       const data = await response.json()
       setLearningReport(data)
     } catch (error) {
