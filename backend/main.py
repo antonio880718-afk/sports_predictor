@@ -748,7 +748,7 @@ def chat_with_ai(req: ChatRequest):
         headers = {'Content-Type': 'application/json'}
         data = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "tools": [{"googleSearchRetrieval": {}}]
+            "tools": [{"google_search": {}}]
         }
         
         # First attempt with the most robust model available
