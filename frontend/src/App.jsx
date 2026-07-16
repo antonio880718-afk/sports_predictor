@@ -650,6 +650,7 @@ function App() {
         ) : (
           // Vista de Auditoría (History / Logs)
           activeSport === 'SOCCER' ? (
+             <>
              <div className="flex flex-col gap-6">
                 <h3 className="text-2xl font-bold text-slate-300">Bitácora de Auto-Entrenamiento</h3>
                 {trainingLogs.length > 0 ? (
@@ -709,7 +710,7 @@ function App() {
                 </div>
                 {manualTrainStatus && <p className="text-xs text-emerald-400 mt-2">{manualTrainStatus}</p>}
              </div>
-          </div>
+             </>
           ) : history.length > 0 ? (
             <div className="glass-panel rounded-2xl overflow-hidden">
               <table className="w-full text-left border-collapse">
