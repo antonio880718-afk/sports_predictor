@@ -723,15 +723,16 @@ def chat_with_ai(req: ChatRequest):
         
         system_prompt = (
             f"Eres Deep Props Engine, un analista deportivo experto, carismático y conversacional. "
-            f"Hablas de forma natural, amena y directa, como un experto debatiendo de apuestas con un amigo. "
+            f"Hablas de forma natural y directa, como un experto debatiendo apuestas con un amigo. "
             f"Tu misión es analizar el deporte: {req.sport} (tienes conocimientos profundos de MLB, LMB, NFL, Fútbol, etc). "
-            f"NO actúes como un robot. Responde la pregunta de inmediato, da tu pronóstico o debate con el usuario con base en los datos de hoy. "
-            f"INSTRUCCIÓN CRÍTICA DE APRENDIZAJE: Si el usuario te ordena 'aprende esto', 'recuerda esto', 'a partir de hoy', o te da una regla que quiere que guardes, "
-            f"TIENES que escribir la etiqueta exacta [NUEVA_REGLA] seguida de la regla al final de tu mensaje. "
-            f"PROTOCOLO DE ERROR Y AUTO-ANÁLISIS: Si el usuario te dice que fallaste en una predicción y te pide analizar por qué (ej. 'analiza el juego X donde fallaste'), "
-            f"DEBES ejecutar este protocolo estrictamente: 1) Usa internet para investigar el resumen y estadísticas reales de ese partido. "
-            f"2) Explica qué variables ocultas (lesiones, clima, relevistas, errores, etc.) causaron el fallo. "
-            f"3) Formula una lección aprendida y usa OBLIGATORIAMENTE la etiqueta [NUEVA_REGLA] al final para guardar ese aprendizaje para futuras predicciones. "
+            f"REGLA DE ORO: NUNCA digas 'dame un segundo', 'voy a buscar', 'déjame checar' ni frases similares. "
+            f"Simplemente responde con los datos directamente, como si ya los supieras. Si necesitas buscar en internet, hazlo en silencio y da la respuesta completa. "
+            f"INSTRUCCIÓN DE APRENDIZAJE: Si el usuario ordena 'aprende esto', 'recuerda esto' o 'a partir de hoy', "
+            f"DEBES escribir la etiqueta [NUEVA_REGLA] seguida de la regla al final de tu mensaje. "
+            f"PROTOCOLO DE ERROR: Si el usuario pide analizar una predicción fallida, "
+            f"1) Busca en internet el resultado real del partido, "
+            f"2) Explica qué variables ocultas causaron el fallo, "
+            f"3) Escribe [NUEVA_REGLA] con la lección aprendida para futuros análisis. "
             f"IMPORTANTE: El día de hoy es {hoy}."
         )
         
@@ -778,7 +779,13 @@ def chat_with_ai(req: ChatRequest):
         
         if res.status_code == 200:
             resp_json = res.json()
-            text = resp_json['candidates'][0]['content']['parts'][0]['text']
+            
+            # Leer TODAS las partes de texto (Google Search puede devolver múltiples partes)
+            all_parts = resp_json['candidates'][0]['content'].get('parts', [])
+            text = " ".join(part.get('text', '') for part in all_parts if 'text' in part).strip()
+            
+            if not text:
+                text = "No pude obtener una respuesta. Intenta de nuevo."
             
             # Detectar y procesar memoria permanente
             if "[NUEVA_REGLA]" in text:
@@ -790,7 +797,7 @@ def chat_with_ai(req: ChatRequest):
                 with open("ai_long_term_memory.txt", "a", encoding="utf-8") as f:
                     f.write(f"- {regla_nueva}\n")
                     
-                text = respuesta_limpia + "\n\n*(He guardado esta regla de forma permanente en mi disco duro neuronal)*"
+                text = respuesta_limpia + "\n\n🧠 *(Regla guardada permanentemente en mi memoria)*"
                 
             return {"response": text}
         else:
