@@ -725,8 +725,13 @@ def chat_with_ai(req: ChatRequest):
             f"Eres Deep Props Engine, un analista deportivo experto, carismático y conversacional. "
             f"Hablas de forma natural, amena y directa, como un experto debatiendo de apuestas con un amigo. "
             f"Tu misión es analizar el deporte: {req.sport} (tienes conocimientos profundos de MLB, LMB, NFL, Fútbol, etc). "
-            f"REGLA CRÍTICA: NO actúes como un robot sumiso. NUNCA digas 'Entendido, Creador' ni 'He actualizado mis algoritmos'. Simplemente responde la pregunta de inmediato, da tu pronóstico o debate con el usuario. "
-            f"Si te preguntan por un partido o equipo que NO está en la 'TABLA EN VIVO' que te pasaremos, ES OBLIGATORIO que uses tu conexión a Internet para buscar los datos de hoy y responder con la verdad. "
+            f"NO actúes como un robot. Responde la pregunta de inmediato, da tu pronóstico o debate con el usuario con base en los datos de hoy. "
+            f"INSTRUCCIÓN CRÍTICA DE APRENDIZAJE: Si el usuario te ordena 'aprende esto', 'recuerda esto', 'a partir de hoy', o te da una regla que quiere que guardes, "
+            f"TIENES que escribir la etiqueta exacta [NUEVA_REGLA] seguida de la regla al final de tu mensaje. "
+            f"PROTOCOLO DE ERROR Y AUTO-ANÁLISIS: Si el usuario te dice que fallaste en una predicción y te pide analizar por qué (ej. 'analiza el juego X donde fallaste'), "
+            f"DEBES ejecutar este protocolo estrictamente: 1) Usa internet para investigar el resumen y estadísticas reales de ese partido. "
+            f"2) Explica qué variables ocultas (lesiones, clima, relevistas, errores, etc.) causaron el fallo. "
+            f"3) Formula una lección aprendida y usa OBLIGATORIAMENTE la etiqueta [NUEVA_REGLA] al final para guardar ese aprendizaje para futuras predicciones. "
             f"IMPORTANTE: El día de hoy es {hoy}."
         )
         
@@ -737,12 +742,22 @@ def chat_with_ai(req: ChatRequest):
             
         history_text = "\n".join(history_lines)
         
+        # Leer memoria permanente
+        long_term_memory_str = ""
+        memory_file = "ai_long_term_memory.txt"
+        import os
+        if os.path.exists(memory_file):
+            with open(memory_file, "r", encoding="utf-8") as f:
+                memoria_guardada = f.read().strip()
+                if memoria_guardada:
+                    long_term_memory_str = f"\n\n[MEMORIA PERMANENTE DEL ENTRENADOR (REGLAS ABSOLUTAS QUE DEBES OBEDECER SIEMPRE)]:\n{memoria_guardada}\n"
+        
         live_data_str = ""
         if req.live_data:
             import json
             live_data_str = "\n\nTABLA DE PARTIDOS Y PREDICCIONES EN VIVO (Obligatorio: Basa tus respuestas en estos datos locales. Si te preguntan algo que no está aquí, usa internet):\n" + json.dumps(req.live_data, ensure_ascii=False)
         
-        prompt = f"{system_prompt}\n\nHISTORIAL DE CONVERSACIÓN RECIENTE:\n{history_text}{live_data_str}\n\nUSUARIO: {req.message}"
+        prompt = f"{system_prompt}{long_term_memory_str}\n\nHISTORIAL DE CONVERSACIÓN RECIENTE:\n{history_text}{live_data_str}\n\nUSUARIO: {req.message}"
         
         import time
         headers = {'Content-Type': 'application/json'}
@@ -764,6 +779,19 @@ def chat_with_ai(req: ChatRequest):
         if res.status_code == 200:
             resp_json = res.json()
             text = resp_json['candidates'][0]['content']['parts'][0]['text']
+            
+            # Detectar y procesar memoria permanente
+            if "[NUEVA_REGLA]" in text:
+                partes = text.split("[NUEVA_REGLA]")
+                respuesta_limpia = partes[0].strip()
+                regla_nueva = partes[1].strip()
+                
+                # Guardar en disco duro de por vida
+                with open("ai_long_term_memory.txt", "a", encoding="utf-8") as f:
+                    f.write(f"- {regla_nueva}\n")
+                    
+                text = respuesta_limpia + "\n\n*(He guardado esta regla de forma permanente en mi disco duro neuronal)*"
+                
             return {"response": text}
         else:
             return {"response": f"[ERROR NEURONAL]: Código {res.status_code} de Google. {res.text}"}
