@@ -704,19 +704,32 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/ai/chat")
 def chat_with_ai(req: ChatRequest):
-    msg = req.message.lower()
+    import os
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        return {"response": "Error: La librería google-generativeai no está instalada en el backend."}
+        
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     
-    # NLP Ligero (Simulado) para explicar decisiones tácticas
-    if "por qu" in msg or "explica" in msg or "cómo" in msg:
-        if req.sport.upper() == "SOCCER":
-            return {"response": "Mis predicciones de Fútbol se basan en un algoritmo Gradient Boosting. Le doy un 45% de peso al xG (Goles Esperados) combinado con la posesión en el medio campo, y aplico un multiplicador de x1.30 a la ventaja de localía si juegan en ligas latinas. Si detecto una inercia negativa, castigo el winrate un 15%."}
-        elif req.sport.upper() == "MLB":
-            return {"response": "Para Béisbol, extraigo el ERA (Efectividad) del Pitcher Abridor directamente de los servidores de la MLB y calculo los ponches proyectados basándome en el Top Hitter enemigo. Si la línea de Las Vegas está inflada respecto a mis proyecciones, sugiero el UNDER o el OVER automáticamente."}
-            
-    if "basura" in msg or "falso" in msg or "inventa" in msg:
-        return {"response": "No invento datos. Toda mi información proviene de las APIs de statsapi.mlb.com y site.api.espn.com/apis/site/v2 en tiempo real. Lo único que yo aporto son los pesos matemáticos de mi red neuronal."}
+    if not api_key or len(api_key) < 10:
+        return {"response": "[MODO CERRADO]: Aún no has inyectado la API Key de Gemini en las Variables de Entorno (Environment Variables) de Render. Por favor inyéctala para despertar mi verdadera IA."}
         
-    if "quién eres" in msg or "qué eres" in msg:
-        return {"response": "Soy Deep Props Engine. Fui creado como una Inteligencia Artificial predictiva con capacidades de Self-Correction (Autocorrección). Analizo deportes y mejoro todos los días usando tus datos y mi backtesting."}
+    try:
+        genai.configure(api_key=api_key)
+        # Usamos gemini-1.5-flash por su rapidez para chatbots
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-    return {"response": "Entiendo tu mensaje, pero mi cerebro está optimizado para hablar de métricas, tácticas, xG, ERA y pronósticos matemáticos. Pregúntame '¿Por qué escogiste X?' o '¿Cómo calculas el fútbol?' para darte un análisis táctico profundo."}
+        system_prompt = (
+            f"Eres Deep Props Engine, una Inteligencia Artificial avanzada, cínica, matemática y muy directa, "
+            f"especializada en predicciones deportivas y apuestas para {req.sport}. "
+            f"Tus pronósticos se basan en algoritmos Gradient Boosting, xG y ERA. "
+            f"Responde la siguiente pregunta del usuario de manera muy humana pero táctica (máximo 2 párrafos rápidos)."
+        )
+        
+        prompt = f"{system_prompt}\n\nMensaje del usuario: {req.message}"
+        response = model.generate_content(prompt)
+        
+        return {"response": response.text}
+    except Exception as e:
+        return {"response": f"[ERROR NEURONAL]: Hubo un problema conectando con el cerebro de Google: {str(e)}"}
