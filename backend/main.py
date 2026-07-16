@@ -698,9 +698,15 @@ def train_manual(req: ManualTrainRequest):
         "message": f"Dato inyectado exitosamente al cerebro. El modelo se re-entrenó con un total de {len(df)} partidos en su memoria histórica."
     }
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     message: str
     sport: str
+    history: list[ChatMessage] = []
+    live_data: list = []
 
 @app.post("/api/ai/chat")
 def chat_with_ai(req: ChatRequest):
@@ -725,12 +731,25 @@ def chat_with_ai(req: ChatRequest):
             f"IMPORTANTE: El día de hoy es {hoy}."
         )
         
-        prompt = f"{system_prompt}\n\nMensaje del usuario: {req.message}"
+        history_lines = []
+        for msg in req.history[-6:]: 
+            speaker = "ENTRENADOR" if msg.role == "user" else "DEEP PROPS ENGINE"
+            history_lines.append(f"{speaker}: {msg.content}")
+            
+        history_text = "\n".join(history_lines)
+        
+        live_data_str = ""
+        if req.live_data:
+            import json
+            live_data_str = "\n\nTABLA DE PARTIDOS Y PREDICCIONES EN VIVO (Obligatorio: Basa tus respuestas y debates en estos datos):\n" + json.dumps(req.live_data, ensure_ascii=False)
+        
+        prompt = f"{system_prompt}\n\nHISTORIAL DE CONVERSACIÓN RECIENTE:\n{history_text}{live_data_str}\n\nENTRENADOR: {req.message}"
         
         import time
         headers = {'Content-Type': 'application/json'}
         data = {
-            "contents": [{"parts": [{"text": prompt}]}]
+            "contents": [{"parts": [{"text": prompt}]}],
+            "tools": [{"googleSearch": {}}]
         }
         
         # First attempt with the most robust model available
