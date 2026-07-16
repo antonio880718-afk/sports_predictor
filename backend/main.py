@@ -756,9 +756,22 @@ def chat_with_ai(req: ChatRequest):
         live_data_str = ""
         if req.live_data:
             import json
-            live_data_str = "\n\nTABLA DE PARTIDOS Y PREDICCIONES EN VIVO (Obligatorio: Basa tus respuestas en estos datos locales. Si te preguntan algo que no está aquí, usa internet):\n" + json.dumps(req.live_data, ensure_ascii=False)
+            # Solo mandar un resumen compacto, NO el JSON completo (evita exceder tokens)
+            resumen = []
+            for g in req.live_data[:10]:  # máximo 10 juegos
+                try:
+                    away = g.get('away', {}).get('team', '?')
+                    home = g.get('home', {}).get('team', '?')
+                    fav = g.get('winProbability', {}).get('favorite', '?')
+                    conf = g.get('winProbability', {}).get('confidence', '?')
+                    ou = g.get('overUnderRuns', {}).get('prediction', '?')
+                    resumen.append(f"{away} vs {home} → Favorito: {fav} ({conf}), O/U: {ou}")
+                except:
+                    pass
+            if resumen:
+                live_data_str = "\n\nPARTIDOS EN VIVO HOY:\n" + "\n".join(resumen)
         
-        prompt = f"{system_prompt}{long_term_memory_str}\n\nHISTORIAL DE CONVERSACIÓN RECIENTE:\n{history_text}{live_data_str}\n\nUSUARIO: {req.message}"
+        prompt = f"{system_prompt}{long_term_memory_str}\n\nHISTORIAL:\n{history_text}{live_data_str}\n\nUSUARIO: {req.message}"
         
         import time
         headers = {'Content-Type': 'application/json'}
@@ -767,41 +780,43 @@ def chat_with_ai(req: ChatRequest):
             "tools": [{"google_search": {}}]
         }
         
-        # Primary: gemini-2.0-flash (1500 req/día gratis vs 20 de 2.5-flash)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        res = requests.post(url, headers=headers, json=data)
+        def llamar_api(model_name):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            return requests.post(url, headers=headers, json=data)
         
-        # Fallback si hay sobrecarga
-        if res.status_code in [503, 429]:
-            time.sleep(2)
-            url2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={api_key}"
-            res = requests.post(url2, headers=headers, json=data)
+        # Intentar modelos en cascada con retry
+        modelos = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]
+        res = None
+        for modelo in modelos:
+            res = llamar_api(modelo)
+            if res.status_code == 200:
+                break
+            elif res.status_code == 429:
+                time.sleep(3)
+                res = llamar_api(modelo)
+                if res.status_code == 200:
+                    break
         
-        if res.status_code == 200:
+        if res and res.status_code == 200:
             resp_json = res.json()
-            
-            # Leer TODAS las partes de texto (Google Search puede devolver múltiples partes)
             all_parts = resp_json['candidates'][0]['content'].get('parts', [])
             text = " ".join(part.get('text', '') for part in all_parts if 'text' in part).strip()
             
             if not text:
                 text = "No pude obtener una respuesta. Intenta de nuevo."
             
-            # Detectar y procesar memoria permanente
             if "[NUEVA_REGLA]" in text:
                 partes = text.split("[NUEVA_REGLA]")
                 respuesta_limpia = partes[0].strip()
                 regla_nueva = partes[1].strip()
-                
-                # Guardar en disco duro de por vida
                 with open("ai_long_term_memory.txt", "a", encoding="utf-8") as f:
                     f.write(f"- {regla_nueva}\n")
-                    
                 text = respuesta_limpia + "\n\n🧠 *(Regla guardada permanentemente en mi memoria)*"
                 
             return {"response": text}
         else:
-            return {"response": f"[ERROR NEURONAL]: Código {res.status_code} de Google. {res.text}"}
+            err = res.json() if res else {}
+            return {"response": f"Error de cuota de Google. Espera unos minutos e intenta de nuevo. ({err.get('error',{}).get('message','')[:100]})"}
             
     except Exception as e:
         return {"response": f"[ERROR INTERNO]: {str(e)}"}
