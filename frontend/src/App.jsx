@@ -117,6 +117,60 @@ function App() {
   const [learningReport, setLearningReport] = useState(null)
   const [showTicketModal, setShowTicketModal] = useState(false)
 
+  // Chat & Manual Training State
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatMessage, setChatMessage] = useState('')
+  const [chatHistory, setChatHistory] = useState([
+    { role: 'ai', content: 'Hola. Soy Deep Props Engine. Pregúntame sobre mis tácticas o predicciones matemáticas.' }
+  ])
+  const [manualTrain, setManualTrain] = useState({
+    sport: 'SOCCER', away_xg: 1.0, home_xg: 1.5, away_possession: 45, home_possession: 55, winner: 'Home'
+  })
+  const [manualTrainStatus, setManualTrainStatus] = useState('')
+
+  const sendChatMessage = async () => {
+    if(!chatMessage.trim()) return
+    const userMsg = { role: 'user', content: chatMessage }
+    setChatHistory(prev => [...prev, userMsg])
+    setChatMessage('')
+    try {
+      const response = await fetch('https://sports-predictor-y4mq.onrender.com/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg.content, sport: activeSport })
+      })
+      const data = await response.json()
+      setChatHistory(prev => [...prev, { role: 'ai', content: data.response }])
+    } catch (e) {
+      setChatHistory(prev => [...prev, { role: 'ai', content: "Error de conexión con mi cerebro." }])
+    }
+  }
+
+  const submitManualTrain = async () => {
+    setManualTrainStatus('Inyectando datos...')
+    try {
+      const response = await fetch('https://sports-predictor-y4mq.onrender.com/api/ai/train_manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sport: manualTrain.sport,
+          away_xg: parseFloat(manualTrain.away_xg),
+          home_xg: parseFloat(manualTrain.home_xg),
+          away_possession: parseFloat(manualTrain.away_possession),
+          home_possession: parseFloat(manualTrain.home_possession),
+          winner: manualTrain.winner
+        })
+      })
+      const data = await response.json()
+      setManualTrainStatus(data.message || data.error)
+      if(data.status === "COMPLETADO") {
+        fetchTrainingLogs()
+      }
+    } catch (e) {
+      setManualTrainStatus('Error al inyectar datos.')
+    }
+  }
+
   const triggerLearning = async () => {
     setLearningMode(true)
     setLearningReport(null)
@@ -616,6 +670,46 @@ function App() {
                   </div>
                 )}
              </div>
+
+             {/* MANUAL TRAINING LAB */}
+             <div className="mt-8 glass-panel p-6 rounded-2xl border border-sky-900/30">
+                <h3 className="text-xl font-bold text-sky-400 mb-4">Laboratorio Manual (Inyección de Datos)</h3>
+                <p className="text-sm text-slate-400 mb-4">Introduce datos históricos reales para re-entrenar la red neuronal matemática. Actualmente optimizado para Soccer.</p>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="text-xs text-slate-500">xG Visitante</label>
+                    <input type="number" step="0.1" value={manualTrain.away_xg} onChange={e=>setManualTrain({...manualTrain, away_xg: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">xG Local</label>
+                    <input type="number" step="0.1" value={manualTrain.home_xg} onChange={e=>setManualTrain({...manualTrain, home_xg: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Posesión Vis. (%)</label>
+                    <input type="number" value={manualTrain.away_possession} onChange={e=>setManualTrain({...manualTrain, away_possession: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Posesión Loc. (%)</label>
+                    <input type="number" value={manualTrain.home_possession} onChange={e=>setManualTrain({...manualTrain, home_possession: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-slate-500">Ganador Real</label>
+                    <select value={manualTrain.winner} onChange={e=>setManualTrain({...manualTrain, winner: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white">
+                      <option value="Home">Local (Home)</option>
+                      <option value="Away">Visitante (Away)</option>
+                      <option value="Draw">Empate (Draw)</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2 flex items-end">
+                    <button onClick={submitManualTrain} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold p-2 rounded shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-all">
+                      Inyectar Conocimiento a la IA
+                    </button>
+                  </div>
+                </div>
+                {manualTrainStatus && <p className="text-xs text-emerald-400 mt-2">{manualTrainStatus}</p>}
+             </div>
+          </div>
           ) : history.length > 0 ? (
             <div className="glass-panel rounded-2xl overflow-hidden">
               <table className="w-full text-left border-collapse">
@@ -746,6 +840,47 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* CHAT WIDGET */}
+      <div className="fixed bottom-6 right-6 z-50">
+        {!chatOpen ? (
+          <button onClick={() => setChatOpen(true)} className="bg-sky-600 hover:bg-sky-500 text-white p-4 rounded-full shadow-[0_0_20px_rgba(2,132,199,0.6)] transition-all">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+          </button>
+        ) : (
+          <div className="bg-slate-900 border border-sky-900/50 rounded-2xl w-80 sm:w-96 shadow-2xl overflow-hidden flex flex-col" style={{ height: '500px' }}>
+            <div className="bg-sky-900/50 p-4 flex justify-between items-center border-b border-sky-800">
+              <h4 className="text-white font-bold flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                Chat IA Táctico
+              </h4>
+              <button onClick={() => setChatOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {chatHistory.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-sky-600 text-white rounded-br-none' : 'bg-slate-800 text-slate-300 border border-slate-700 rounded-bl-none'}`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="p-3 border-t border-slate-800 bg-slate-900 flex gap-2">
+              <input 
+                type="text" 
+                value={chatMessage} 
+                onChange={(e) => setChatMessage(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                placeholder="Pregúntale a la IA..."
+                className="flex-1 bg-slate-800 border border-slate-700 text-white text-sm rounded-full px-4 py-2 focus:outline-none focus:border-sky-500"
+              />
+              <button onClick={sendChatMessage} className="bg-sky-600 hover:bg-sky-500 text-white rounded-full p-2 w-10 h-10 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
