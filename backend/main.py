@@ -767,14 +767,14 @@ def chat_with_ai(req: ChatRequest):
             "tools": [{"google_search": {}}]
         }
         
-        # First attempt with the most robust model available
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        # Primary: gemini-2.0-flash (1500 req/día gratis vs 20 de 2.5-flash)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
         res = requests.post(url, headers=headers, json=data)
         
-        # Fallback if Google servers are overloaded
-        if res.status_code == 503:
-            time.sleep(1.5)
-            url2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        # Fallback si hay sobrecarga
+        if res.status_code in [503, 429]:
+            time.sleep(2)
+            url2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={api_key}"
             res = requests.post(url2, headers=headers, json=data)
         
         if res.status_code == 200:
