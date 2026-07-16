@@ -717,8 +717,8 @@ def chat_with_ai(req: ChatRequest):
         
     try:
         genai.configure(api_key=api_key)
-        # Usamos gemini-1.5-flash por su rapidez para chatbots
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Fix: using the standard gemini-1.5-flash-latest or gemini-pro string
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         system_prompt = (
             f"Eres Deep Props Engine, una Inteligencia Artificial avanzada, cínica, matemática y muy directa, "
@@ -732,4 +732,10 @@ def chat_with_ai(req: ChatRequest):
         
         return {"response": response.text}
     except Exception as e:
-        return {"response": f"[ERROR NEURONAL]: Hubo un problema conectando con el cerebro de Google: {str(e)}"}
+        # Fallback to gemini-pro if 1.5 flash fails
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content(prompt)
+            return {"response": response.text}
+        except Exception as e2:
+            return {"response": f"[ERROR NEURONAL]: Hubo un problema de compatibilidad con Google: {str(e2)}"}
