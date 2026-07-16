@@ -704,22 +704,14 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/ai/chat")
 def chat_with_ai(req: ChatRequest):
-    import os
-    try:
-        import google.generativeai as genai
-    except ImportError:
-        return {"response": "Error: La librería google-generativeai no está instalada en el backend."}
-        
+    import os, requests
+    
     api_key = os.environ.get("GEMINI_API_KEY", "")
     
     if not api_key or len(api_key) < 10:
         return {"response": "[MODO CERRADO]: Aún no has inyectado la API Key de Gemini en las Variables de Entorno (Environment Variables) de Render. Por favor inyéctala para despertar mi verdadera IA."}
         
     try:
-        genai.configure(api_key=api_key)
-        # Fix: using the standard gemini-1.5-flash-latest or gemini-pro string
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        
         system_prompt = (
             f"Eres Deep Props Engine, una Inteligencia Artificial avanzada, cínica, matemática y muy directa, "
             f"especializada en predicciones deportivas y apuestas para {req.sport}. "
@@ -728,14 +720,21 @@ def chat_with_ai(req: ChatRequest):
         )
         
         prompt = f"{system_prompt}\n\nMensaje del usuario: {req.message}"
-        response = model.generate_content(prompt)
         
-        return {"response": response.text}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
+        data = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+        
+        res = requests.post(url, headers=headers, json=data)
+        
+        if res.status_code == 200:
+            resp_json = res.json()
+            text = resp_json['candidates'][0]['content']['parts'][0]['text']
+            return {"response": text}
+        else:
+            return {"response": f"[ERROR NEURONAL]: Código {res.status_code} de Google. {res.text}"}
+            
     except Exception as e:
-        # Fallback to gemini-pro if 1.5 flash fails
-        try:
-            model = genai.GenerativeModel('gemini-pro')
-            response = model.generate_content(prompt)
-            return {"response": response.text}
-        except Exception as e2:
-            return {"response": f"[ERROR NEURONAL]: Hubo un problema de compatibilidad con Google: {str(e2)}"}
+        return {"response": f"[ERROR INTERNO]: {str(e)}"}
