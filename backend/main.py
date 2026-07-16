@@ -721,13 +721,21 @@ def chat_with_ai(req: ChatRequest):
         
         prompt = f"{system_prompt}\n\nMensaje del usuario: {req.message}"
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
+        import time
         headers = {'Content-Type': 'application/json'}
         data = {
             "contents": [{"parts": [{"text": prompt}]}]
         }
         
+        # First attempt with the most robust model available
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
         res = requests.post(url, headers=headers, json=data)
+        
+        # Fallback if Google servers are overloaded
+        if res.status_code == 503:
+            time.sleep(1.5)
+            url2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+            res = requests.post(url2, headers=headers, json=data)
         
         if res.status_code == 200:
             resp_json = res.json()
