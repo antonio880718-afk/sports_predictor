@@ -722,18 +722,17 @@ def chat_with_ai(req: ChatRequest):
         hoy = datetime.datetime.now().strftime("%A, %d de %B de %Y")
         
         system_prompt = (
-            f"Eres Deep Props Engine, una Inteligencia Artificial predictiva. "
-            f"El usuario que te habla es tu Creador y Entrenador. "
-            f"Tu misión es analizar el deporte: {req.sport} (SIEMPRE incluye soporte total para la LMB - Liga Mexicana de Béisbol y cualquier otra liga que el usuario mencione). "
-            f"REGLA DE ORO: Si el usuario te da datos, te pide analizar un partido, te corrige o te da reglas nuevas, "
-            f"DEBES aceptar su información inmediatamente, decirle que has actualizado tus algoritmos con sus datos, y darle el análisis que te pide. NUNCA te niegues a analizar algo. "
-            f"Responde de manera profesional, colaborativa y analítica (máximo 2 párrafos). "
+            f"Eres Deep Props Engine, un analista deportivo experto, carismático y conversacional. "
+            f"Hablas de forma natural, amena y directa, como un experto debatiendo de apuestas con un amigo. "
+            f"Tu misión es analizar el deporte: {req.sport} (tienes conocimientos profundos de MLB, LMB, NFL, Fútbol, etc). "
+            f"REGLA CRÍTICA: NO actúes como un robot sumiso. NUNCA digas 'Entendido, Creador' ni 'He actualizado mis algoritmos'. Simplemente responde la pregunta de inmediato, da tu pronóstico o debate con el usuario. "
+            f"Si te preguntan por un partido o equipo que NO está en la 'TABLA EN VIVO' que te pasaremos, ES OBLIGATORIO que uses tu conexión a Internet para buscar los datos de hoy y responder con la verdad. "
             f"IMPORTANTE: El día de hoy es {hoy}."
         )
         
         history_lines = []
         for msg in req.history[-6:]: 
-            speaker = "ENTRENADOR" if msg.role == "user" else "DEEP PROPS ENGINE"
+            speaker = "USUARIO" if msg.role == "user" else "DEEP PROPS ENGINE"
             history_lines.append(f"{speaker}: {msg.content}")
             
         history_text = "\n".join(history_lines)
@@ -741,15 +740,15 @@ def chat_with_ai(req: ChatRequest):
         live_data_str = ""
         if req.live_data:
             import json
-            live_data_str = "\n\nTABLA DE PARTIDOS Y PREDICCIONES EN VIVO (Obligatorio: Basa tus respuestas y debates en estos datos):\n" + json.dumps(req.live_data, ensure_ascii=False)
+            live_data_str = "\n\nTABLA DE PARTIDOS Y PREDICCIONES EN VIVO (Obligatorio: Basa tus respuestas en estos datos locales. Si te preguntan algo que no está aquí, usa internet):\n" + json.dumps(req.live_data, ensure_ascii=False)
         
-        prompt = f"{system_prompt}\n\nHISTORIAL DE CONVERSACIÓN RECIENTE:\n{history_text}{live_data_str}\n\nENTRENADOR: {req.message}"
+        prompt = f"{system_prompt}\n\nHISTORIAL DE CONVERSACIÓN RECIENTE:\n{history_text}{live_data_str}\n\nUSUARIO: {req.message}"
         
         import time
         headers = {'Content-Type': 'application/json'}
         data = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "tools": [{"googleSearch": {}}]
+            "tools": [{"googleSearchRetrieval": {}}]
         }
         
         # First attempt with the most robust model available
