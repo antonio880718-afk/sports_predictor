@@ -712,29 +712,16 @@ def chat_with_ai(req: ChatRequest):
         return {"response": "[MODO CERRADO]: Aún no has inyectado la API Key de Gemini en las Variables de Entorno (Environment Variables) de Render. Por favor inyéctala para despertar mi verdadera IA."}
         
     try:
-        system_prompt = (
-            f"Eres Deep Props Engine, una Inteligencia Artificial avanzada, cínica, matemática y muy directa, "
-            f"especializada en predicciones deportivas y apuestas para {req.sport}. "
-            f"Tus pronósticos se basan en algoritmos Gradient Boosting, xG y ERA. "
-            f"Responde la siguiente pregunta del usuario de manera muy humana pero táctica (máximo 2 párrafos rápidos)."
-        )
-        
-        prompt = f"{system_prompt}\n\nMensaje del usuario: {req.message}"
-        
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        headers = {'Content-Type': 'application/json'}
-        data = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
-        
-        res = requests.post(url, headers=headers, json=data)
+        # Debugging: Fetch the list of available models for this specific API key
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        res = requests.get(url)
         
         if res.status_code == 200:
             resp_json = res.json()
-            text = resp_json['candidates'][0]['content']['parts'][0]['text']
-            return {"response": text}
+            model_names = [m['name'] for m in resp_json.get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
+            return {"response": f"DEBUG INFO: El error 404 es porque tu API Key tiene restricciones de modelos. Estos son los únicos modelos que tu llave tiene permitidos usar: {', '.join(model_names)}"}
         else:
-            return {"response": f"[ERROR NEURONAL]: Código {res.status_code} de Google. {res.text}"}
+            return {"response": f"[ERROR NEURONAL]: No pude obtener la lista de modelos. Código {res.status_code}. {res.text}"}
             
     except Exception as e:
         return {"response": f"[ERROR INTERNO]: {str(e)}"}
