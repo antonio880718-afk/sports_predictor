@@ -712,16 +712,20 @@ def chat_with_ai(req: ChatRequest):
         return {"response": "[MODO CERRADO]: Aún no has inyectado la API Key de Gemini en las Variables de Entorno (Environment Variables) de Render. Por favor inyéctala para despertar mi verdadera IA."}
         
     try:
-        # Debugging: Fetch the list of available models for this specific API key
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-        res = requests.get(url)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
+        data = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+        
+        res = requests.post(url, headers=headers, json=data)
         
         if res.status_code == 200:
             resp_json = res.json()
-            model_names = [m['name'] for m in resp_json.get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
-            return {"response": f"DEBUG INFO: El error 404 es porque tu API Key tiene restricciones de modelos. Estos son los únicos modelos que tu llave tiene permitidos usar: {', '.join(model_names)}"}
+            text = resp_json['candidates'][0]['content']['parts'][0]['text']
+            return {"response": text}
         else:
-            return {"response": f"[ERROR NEURONAL]: No pude obtener la lista de modelos. Código {res.status_code}. {res.text}"}
+            return {"response": f"[ERROR NEURONAL]: Código {res.status_code} de Google. {res.text}"}
             
     except Exception as e:
         return {"response": f"[ERROR INTERNO]: {str(e)}"}
