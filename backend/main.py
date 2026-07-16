@@ -712,6 +712,15 @@ def chat_with_ai(req: ChatRequest):
         return {"response": "[MODO CERRADO]: Aún no has inyectado la API Key de Gemini en las Variables de Entorno (Environment Variables) de Render. Por favor inyéctala para despertar mi verdadera IA."}
         
     try:
+        system_prompt = (
+            f"Eres Deep Props Engine, una Inteligencia Artificial avanzada, cínica, matemática y muy directa, "
+            f"especializada en predicciones deportivas y apuestas para {req.sport}. "
+            f"Tus pronósticos se basan en algoritmos Gradient Boosting, xG y ERA. "
+            f"Responde la siguiente pregunta del usuario de manera muy humana pero táctica (máximo 2 párrafos rápidos)."
+        )
+        
+        prompt = f"{system_prompt}\n\nMensaje del usuario: {req.message}"
+        
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         data = {
