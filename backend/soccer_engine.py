@@ -281,9 +281,22 @@ def calculate_soccer_predictions(away_team: str, home_team: str, away_record: di
     
     probs = clf.predict_proba(features)[0]
     
-    away_prob = float(probs[0] * 100)
-    home_prob = float(probs[1] * 100)
-    draw_prob = float(probs[2] * 100)
+    # Mapeo seguro de clases (por si la memoria aún no tiene algún resultado como Empate)
+    away_prob = 0.0
+    home_prob = 0.0
+    draw_prob = 0.0
+    
+    for i, cls in enumerate(clf.classes_):
+        if cls == 0:
+            away_prob = float(probs[i] * 100)
+        elif cls == 1:
+            home_prob = float(probs[i] * 100)
+        elif cls == 2:
+            draw_prob = float(probs[i] * 100)
+            
+    if away_prob == 0 and home_prob == 0 and draw_prob == 0:
+        away_prob, home_prob, draw_prob = 33.3, 33.3, 33.3
+    
     
     if form_diff > 10:
         home_prob += 5.0
