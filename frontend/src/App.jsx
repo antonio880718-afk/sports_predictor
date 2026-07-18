@@ -655,140 +655,152 @@ function App() {
           )
         ) : (
           // Vista de Auditoría (History / Logs)
-          activeSport === 'SOCCER' ? (
-             <>
-             <div className="flex flex-col gap-6">
-                <h3 className="text-2xl font-bold text-slate-300">Bitácora de Auto-Entrenamiento</h3>
-                {trainingLogs.length > 0 ? (
-                  <div className="space-y-4">
-                    {trainingLogs.map(log => (
-                      <div key={log.id} className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-l-emerald-500">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm font-bold text-emerald-400">Sesión IA #{log.id}</span>
-                          <span className="text-xs text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-700">{log.timestamp}</span>
-                        </div>
-                        <p className="text-slate-300 text-sm leading-relaxed">{log.message}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="glass-panel p-10 text-center rounded-2xl">
-                    <p className="text-slate-500">La bitácora de entrenamiento está vacía. El Cron Job se ejecutará a las 10:00 AM.</p>
-                  </div>
-                )}
-             </div>
-
-             {/* MANUAL TRAINING LAB */}
-             <div className="mt-8 glass-panel p-6 rounded-2xl border border-sky-900/30">
-                <h3 className="text-xl font-bold text-sky-400 mb-4">Laboratorio Manual (Inyección de Datos)</h3>
-                <p className="text-sm text-slate-400 mb-4">Introduce datos históricos reales para re-entrenar la red neuronal matemática. Actualmente optimizado para Soccer.</p>
-                
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <label className="text-xs text-slate-500">xG Visitante</label>
-                    <input type="number" step="0.1" value={manualTrain.away_xg} onChange={e=>setManualTrain({...manualTrain, away_xg: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">xG Local</label>
-                    <input type="number" step="0.1" value={manualTrain.home_xg} onChange={e=>setManualTrain({...manualTrain, home_xg: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Posesión Vis. (%)</label>
-                    <input type="number" value={manualTrain.away_possession} onChange={e=>setManualTrain({...manualTrain, away_possession: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Posesión Loc. (%)</label>
-                    <input type="number" value={manualTrain.home_possession} onChange={e=>setManualTrain({...manualTrain, home_possession: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-slate-500">Ganador Real</label>
-                    <select value={manualTrain.winner} onChange={e=>setManualTrain({...manualTrain, winner: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white">
-                      <option value="Home">Local (Home)</option>
-                      <option value="Away">Visitante (Away)</option>
-                      <option value="Draw">Empate (Draw)</option>
-                    </select>
-                  </div>
-                  <div className="col-span-2 flex items-end">
-                    <button onClick={submitManualTrain} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold p-2 rounded shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-all">
-                      Inyectar Conocimiento a la IA
-                    </button>
-                  </div>
-                </div>
-                {manualTrainStatus && <p className="text-xs text-emerald-400 mt-2">{manualTrainStatus}</p>}
-             </div>
-             </>
-          ) : history.length > 0 ? (
-            <div className="glass-panel rounded-2xl overflow-hidden">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-900/80 border-b border-slate-700">
-                    <th className="p-4 text-slate-300 font-semibold">Partido</th>
-                    <th className="p-4 text-slate-300 font-semibold text-center">Marcador Real</th>
-                    <th className="p-4 text-slate-300 font-semibold">Predicción IA (Ganador)</th>
-                    <th className="p-4 text-slate-300 font-semibold">Predicción IA (O/U)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {history.map((h, idx) => (
-                    <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
-                      <td className="p-4">
-                        <p className="font-medium text-white">{h.matchup}</p>
-                        <p className="text-xs text-slate-400 mt-1">Abridores: {h.pitchers}</p>
-                        <p className="text-xs text-sky-400 mt-1">Jugador a seguir: {h.props.topHitter} (Prob Hit: {h.props.hitProb} | K's Proy: {h.props.kProj})</p>
-                      </td>
-                      <td className="p-4 text-center font-bold text-lg">{h.realScore}</td>
-                      
-                      {/* Ganador */}
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div>
-                            <p className="font-bold">{h.aiPrediction.winner}</p>
-                            <p className="text-xs text-slate-400">
-                              Confianza: {h.aiPrediction.confidence}% 
-                              {h.aiPrediction.isSniper && <span className="text-emerald-400 ml-1">(FRANCOTIRADOR)</span>}
-                            </p>
-                          </div>
-                          {h.aiPrediction.hit ? (
-                            <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                              ACIERTO
-                            </span>
-                          ) : (
-                            <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
-                              FALLO
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Over Under */}
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div>
-                            <p className="font-bold">{h.ouPrediction.predicted}</p>
-                            <p className="text-xs text-slate-400">Línea: {h.ouPrediction.line}</p>
-                          </div>
-                          {h.ouPrediction.hit ? (
-                            <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                              ACIERTO
-                            </span>
-                          ) : (
-                            <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
-                              FALLO
-                            </span>
-                          )}
-                        </div>
-                      </td>
+          <div className="flex flex-col gap-8">
+            {history.length > 0 ? (
+              <div className="glass-panel rounded-2xl overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900/80 border-b border-slate-700">
+                      <th className="p-4 text-slate-300 font-semibold">Partido</th>
+                      <th className="p-4 text-slate-300 font-semibold text-center">Marcador Real</th>
+                      <th className="p-4 text-slate-300 font-semibold">Predicción IA (Ganador)</th>
+                      <th className="p-4 text-slate-300 font-semibold">Predicción IA (Total)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="glass-panel p-10 text-center rounded-2xl">
-              <h3 className="text-2xl text-slate-300 mb-2">Sin datos de auditoría</h3>
-              <p className="text-slate-500">Aún no hay historial procesado para {activeSport}.</p>
-            </div>
-          )
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {history.map((h, idx) => {
+                      const ouData = h.ouPrediction || h.goalsPrediction;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
+                          <td className="p-4">
+                            <p className="font-medium text-white">{h.matchup}</p>
+                            {h.pitchers && <p className="text-xs text-slate-400 mt-1">Abridores: {h.pitchers}</p>}
+                            {h.props && <p className="text-xs text-sky-400 mt-1">Jugador a seguir: {h.props.topHitter} (Prob Hit: {h.props.hitProb} | K's Proy: {h.props.kProj})</p>}
+                            {h.league && <p className="text-xs text-slate-400 mt-1">Liga: {h.league.toUpperCase()}</p>}
+                          </td>
+                          <td className="p-4 text-center font-bold text-lg">{h.realScore || h.totalGoals || h.totalPoints || "-"}</td>
+                          
+                          {/* Ganador */}
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div>
+                                <p className="font-bold">{h.aiPrediction.winner}</p>
+                                <p className="text-xs text-slate-400">
+                                  Confianza: {h.aiPrediction.confidence}% 
+                                  {h.aiPrediction.isSniper && <span className="text-emerald-400 ml-1">(FRANCOTIRADOR)</span>}
+                                </p>
+                              </div>
+                              {h.aiPrediction.hit ? (
+                                <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                                  ACIERTO
+                                </span>
+                              ) : (
+                                <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
+                                  FALLO
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Over Under / Totales */}
+                          <td className="p-4">
+                            {ouData ? (
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <p className="font-bold">{ouData.predicted}</p>
+                                  <p className="text-xs text-slate-400">Línea: {ouData.line}</p>
+                                </div>
+                                {ouData.hit ? (
+                                  <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                                    ACIERTO
+                                  </span>
+                                ) : (
+                                  <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
+                                    FALLO
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="glass-panel p-10 text-center rounded-2xl">
+                <h3 className="text-2xl text-slate-300 mb-2">Sin datos de auditoría</h3>
+                <p className="text-slate-500">Aún no hay historial procesado para {activeSport} en la fecha {auditDate}.</p>
+              </div>
+            )}
+
+            {activeSport === 'SOCCER' && (
+              <>
+                <div className="flex flex-col gap-6 mt-4">
+                  <h3 className="text-2xl font-bold text-slate-300">Bitácora de Auto-Entrenamiento</h3>
+                  {trainingLogs.length > 0 ? (
+                    <div className="space-y-4">
+                      {trainingLogs.map(log => (
+                        <div key={log.id} className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-l-emerald-500">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-bold text-emerald-400">Sesión IA #{log.id}</span>
+                            <span className="text-xs text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-700">{log.timestamp}</span>
+                          </div>
+                          <p className="text-slate-300 text-sm leading-relaxed">{log.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="glass-panel p-10 text-center rounded-2xl">
+                      <p className="text-slate-500">La bitácora de entrenamiento está vacía. El Cron Job se ejecutará a las 10:00 AM.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* MANUAL TRAINING LAB */}
+                <div className="glass-panel p-6 rounded-2xl border border-sky-900/30">
+                  <h3 className="text-xl font-bold text-sky-400 mb-4">Laboratorio Manual (Inyección de Datos)</h3>
+                  <p className="text-sm text-slate-400 mb-4">Introduce datos históricos reales para re-entrenar la red neuronal matemática. Actualmente optimizado para Soccer.</p>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div>
+                      <label className="text-xs text-slate-500">xG Visitante</label>
+                      <input type="number" step="0.1" value={manualTrain.away_xg} onChange={e=>setManualTrain({...manualTrain, away_xg: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">xG Local</label>
+                      <input type="number" step="0.1" value={manualTrain.home_xg} onChange={e=>setManualTrain({...manualTrain, home_xg: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Posesión Vis. (%)</label>
+                      <input type="number" value={manualTrain.away_possession} onChange={e=>setManualTrain({...manualTrain, away_possession: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Posesión Loc. (%)</label>
+                      <input type="number" value={manualTrain.home_possession} onChange={e=>setManualTrain({...manualTrain, home_possession: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-slate-500">Ganador Real</label>
+                      <select value={manualTrain.winner} onChange={e=>setManualTrain({...manualTrain, winner: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white">
+                        <option value="Home">Local (Home)</option>
+                        <option value="Away">Visitante (Away)</option>
+                        <option value="Draw">Empate (Draw)</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2 flex items-end">
+                      <button onClick={submitManualTrain} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold p-2 rounded shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-all">
+                        Inyectar Conocimiento a la IA
+                      </button>
+                    </div>
+                  </div>
+                  {manualTrainStatus && <p className="text-xs text-emerald-400 mt-2">{manualTrainStatus}</p>}
+                </div>
+              </>
+            )}
+          </div>
         )}
       </main>
 

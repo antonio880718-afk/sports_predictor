@@ -1,17 +1,36 @@
 import os
 import json
+import random
 import requests
 import pandas as pd
+import csv
+from datetime import datetime, timedelta
 from sklearn.ensemble import GradientBoostingClassifier
 import joblib
 
+MEMORY_FILE = os.path.join(os.path.dirname(__file__), "ai_memory_bank_nba.csv")
+MODEL_FILE = os.path.join(os.path.dirname(__file__), "nba_ai_model.pkl")
+
+MEMORY_COLUMNS = [
+    "date", "away_team", "home_team",
+    "away_pts", "home_pts", "total_pts", "spread",
+    "away_ppg", "home_ppg", "home_adv",
+    "winner"  # 0=Away, 1=Home
+]
+
+FEATURE_COLUMNS = ["away_ppg", "home_ppg", "total_est", "spread_est", "home_adv"]
+
+def _ensure_memory_file():
+    if not os.path.isfile(MEMORY_FILE):
+        with open(MEMORY_FILE, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(MEMORY_COLUMNS)
+
+
 def get_nba_team_stats(team_name: str):
-    """
-    Busca estadísticas reales del equipo en balldontlie.io (gratis, sin llave).
-    """
+    """Busca estadísticas reales del equipo en balldontlie.io."""
     try:
-        # Buscar el equipo
-        res = requests.get(f"https://api.balldontlie.io/v1/teams", timeout=5)
+        res = requests.get("https://api.balldontlie.io/v1/teams", timeout=5)
         if res.status_code != 200:
             return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
         
@@ -25,7 +44,6 @@ def get_nba_team_stats(team_name: str):
         if not team_id:
             return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
         
-        # Obtener últimos 10 juegos para calcular PPG
         games_res = requests.get(
             f"https://api.balldontlie.io/v1/games?team_ids[]={team_id}&per_page=10&seasons[]=2025",
             timeout=5
@@ -35,7 +53,6 @@ def get_nba_team_stats(team_name: str):
             return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
         
         games = games_res.json().get("data", [])
-        
         if not games:
             return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
         
@@ -70,134 +87,192 @@ def get_nba_team_stats(team_name: str):
             "opp_ppg": round(total_opp / n, 1)
         }
     except Exception as e:
-        print(f"Error fetching NBA stats for {team_name}: {e}")
         return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
 
 
-def train_nba_model():
-    """Entrena un modelo de NBA con datos de la temporada."""
-    target_model_file = os.path.join(os.path.dirname(__file__), "nba_ai_model.pkl")
-    memory_filename = os.path.join(os.path.dirname(__file__), "ai_memory_bank_nba.csv")
+def harvest_real_results(target_date: str = None, days_back: int = 14):
+    """Descarga resultados REALES de NBA de ESPN."""
+    _ensure_memory_file()
     
-    # Recolectar datos reales de balldontlie.io
-    try:
-        res = requests.get(
-            "https://api.balldontlie.io/v1/games?per_page=100&seasons[]=2025",
-            timeout=10
-        )
-        if res.status_code == 200:
-            games = res.json().get("data", [])
-            rows = []
-            for g in games:
-                if g.get("status") != "Final":
-                    continue
-                home_score = g.get("home_team_score", 0)
-                away_score = g.get("visitor_team_score", 0)
-                if home_score == 0 and away_score == 0:
-                    continue
-                
-                # Features: away_ppg_est, home_ppg_est, total, spread_est, home_adv
-                total = home_score + away_score
-                spread = home_score - away_score
-                rows.append([
-                    away_score, home_score, total, spread, 1.0,
-                    1 if home_score > away_score else 0
-                ])
+    if target_date:
+        dates = [target_date]
+    else:
+        dates = []
+        for i in range(1, days_back + 1):
+            d = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+            dates.append(d)
+    
+    existing_keys = set()
+    if os.path.isfile(MEMORY_FILE):
+        try:
+            df_existing = pd.read_csv(MEMORY_FILE)
+            for _, row in df_existing.iterrows():
+                key = f"{row.get('date','')}-{row.get('away_team','')}-{row.get('home_team','')}"
+                existing_keys.add(key)
+        except:
+            pass
+    
+    new_games = []
+    
+    for date_str in dates:
+        date_formatted = date_str.replace("-", "")
+        url = f"http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={date_formatted}"
+        try:
+            res = requests.get(url, timeout=5).json()
+            events = res.get('events', [])
             
-            if rows:
-                df = pd.DataFrame(rows, columns=["away_pts", "home_pts", "total", "spread", "home_adv", "y"])
-                df.to_csv(memory_filename, index=False)
-    except:
-        pass
+            for g in events:
+                try:
+                    competition = g['competitions'][0]
+                    status = competition.get('status', {}).get('type', {})
+                    if not status.get('completed', False):
+                        continue
+                    
+                    competitors = competition['competitors']
+                    home_team = away_team = ""
+                    home_score = away_score = 0
+                    
+                    for c in competitors:
+                        if c['homeAway'] == 'home':
+                            home_team = c['team']['displayName']
+                            home_score = int(c.get('score', 0))
+                        else:
+                            away_team = c['team']['displayName']
+                            away_score = int(c.get('score', 0))
+                    
+                    key = f"{date_str}-{away_team}-{home_team}"
+                    if key in existing_keys:
+                        continue
+                    existing_keys.add(key)
+                    
+                    total_pts = home_score + away_score
+                    spread = home_score - away_score
+                    
+                    winner = 1 if home_score > away_score else 0
+                    
+                    new_games.append([
+                        date_str, away_team, home_team,
+                        away_score, home_score, total_pts, spread,
+                        away_score, home_score, 1.0,
+                        winner
+                    ])
+                except:
+                    continue
+        except:
+            continue
     
-    # Si no hay datos reales, crear datos de entrenamiento basados en promedios NBA
-    if not os.path.exists(memory_filename):
-        import random
-        data = {
-            "away_pts": [random.gauss(108, 10) for _ in range(200)],
-            "home_pts": [random.gauss(112, 10) for _ in range(200)],
-            "total": [random.gauss(220, 15) for _ in range(200)],
-            "spread": [random.gauss(2, 8) for _ in range(200)],
-            "home_adv": [1.0] * 200,
-            "y": [1 if random.gauss(112, 10) > random.gauss(108, 10) else 0 for _ in range(200)]
-        }
-        df = pd.DataFrame(data)
-        df.to_csv(memory_filename, index=False)
+    if new_games:
+        with open(MEMORY_FILE, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            for row in new_games:
+                writer.writerow(row)
     
-    df = pd.read_csv(memory_filename)
-    df = df.drop_duplicates()
-    df.to_csv(memory_filename, index=False)
+    return len(new_games)
+
+
+def train_nba_model(target_date: str = None):
+    """Entrena con TODA la memoria permanente acumulada."""
+    new_count = harvest_real_results(target_date, days_back=30)
     
-    X = df.iloc[:, :-1].values.tolist()
-    y = df.iloc[:, -1].values.tolist()
+    _ensure_memory_file()
     
-    clf = GradientBoostingClassifier(n_estimators=150, learning_rate=0.08, max_depth=4, random_state=42)
+    df = pd.read_csv(MEMORY_FILE)
+    df = df.drop_duplicates(subset=["date", "away_team", "home_team"])
+    df.to_csv(MEMORY_FILE, index=False)
+    
+    total_in_memory = len(df)
+    
+    if total_in_memory < 10:
+        seed_data = []
+        for _ in range(100):
+            home_pts = random.gauss(112, 10)
+            away_pts = random.gauss(108, 10)
+            total = home_pts + away_pts
+            spread = home_pts - away_pts
+            w = 1 if home_pts > away_pts else 0
+            seed_data.append([away_pts, home_pts, total, spread, 1.0, w])
+        X = [r[:-1] for r in seed_data]
+        y = [r[-1] for r in seed_data]
+        total_training = len(X)
+    else:
+        X = []
+        y = []
+        for _, row in df.iterrows():
+            away_p = float(row.get("away_ppg", row.get("away_pts", 108)))
+            home_p = float(row.get("home_ppg", row.get("home_pts", 112)))
+            total = float(row.get("total_pts", 220))
+            spread = float(row.get("spread", 0))
+            X.append([away_p, home_p, total, spread, 1.0])
+            y.append(int(row["winner"]))
+        total_training = len(X)
+    
+    clf = GradientBoostingClassifier(
+        n_estimators=min(200, 50 + total_training),
+        learning_rate=0.08,
+        max_depth=4,
+        random_state=42
+    )
     clf.fit(X, y)
-    joblib.dump(clf, target_model_file)
     
     accuracy = clf.score(X, y) * 100
+    joblib.dump(clf, MODEL_FILE)
+    
+    avg_total = round(df["total_pts"].mean(), 1) if total_in_memory > 0 and "total_pts" in df.columns else 0
+    home_win_pct = round((df["winner"].mean()) * 100, 1) if total_in_memory > 0 else 50
     
     return {
         "status": "COMPLETADO",
-        "gamesAudited": len(y),
-        "failedSniperBets": int((1 - (accuracy / 100)) * len(y)),
+        "gamesAudited": total_training,
+        "failedSniperBets": int((1 - (accuracy / 100)) * total_training),
         "insights": [
             {
-                "patternFound": f"Motor GBM NBA alcanzó {round(accuracy, 1)}% de precisión en {len(y)} juegos.",
-                "actionTaken": f"Modelo guardado en nba_ai_model.pkl.",
-                "feature": "GradientBoosting_NBA",
-                "newWeight": "Dinámico"
-            },
-            {
-                "patternFound": "Integración de PPG, Spread y Ventaja de Localía.",
-                "actionTaken": "Features: Puntos Visitante, Puntos Local, Total, Spread, Home Advantage.",
-                "feature": "Feature_Engineering_NBA",
-                "newWeight": "Dinámico"
+                "patternFound": f"Cerebro GBM NBA: {round(accuracy, 1)}% precisión en {total_training} partidos. Memoria total: {total_in_memory} juegos.",
+                "actionTaken": f"Se agregaron {new_count} juegos nuevos. Promedio total: {avg_total} pts. Home win: {home_win_pct}%.",
+                "feature": "GradientBoosting_NBA_PermanentMemory",
+                "newWeight": "Acumulativo"
             }
         ],
-        "message": "IA Profunda NBA (nba_ai_model.pkl) re-entrenada con Gradient Boosting."
+        "message": f"IA NBA re-entrenada con {total_training} juegos. Memoria permanente: {total_in_memory} partidos (+{new_count} nuevos)."
     }
 
 
 def calculate_nba_predictions(away_team: str, home_team: str, spread_val: float = 0.0, total_val: float = 0.0):
-    """
-    Predicción NBA usando stats reales + líneas de Vegas.
-    """
-    model_filename = "nba_ai_model.pkl"
-    target_model_file = os.path.join(os.path.dirname(__file__), model_filename)
-    
-    if not os.path.exists(target_model_file):
+    """Predicción NBA usando memoria permanente + stats reales."""
+    if not os.path.exists(MODEL_FILE):
         train_nba_model()
     
     try:
-        clf = joblib.load(target_model_file)
+        clf = joblib.load(MODEL_FILE)
     except:
         train_nba_model()
-        clf = joblib.load(target_model_file)
+        clf = joblib.load(MODEL_FILE)
     
-    # Obtener stats reales de ambos equipos
+    # Stats reales
     away_stats = get_nba_team_stats(away_team)
     home_stats = get_nba_team_stats(home_team)
     
-    # Calcular features
     if total_val == 0:
         total_val = away_stats["ppg"] + home_stats["ppg"]
     if spread_val == 0:
-        spread_val = home_stats["ppg"] - away_stats["ppg"] - 2.5  # 2.5 pts home advantage
+        spread_val = home_stats["ppg"] - away_stats["ppg"] - 2.5
     
-    features = [[
-        away_stats["ppg"],
-        home_stats["ppg"],
-        total_val,
-        spread_val,
-        1.0
-    ]]
+    features = [[away_stats["ppg"], home_stats["ppg"], total_val, spread_val, 1.0]]
     
     probs = clf.predict_proba(features)[0]
     away_prob = float(probs[0] * 100)
     home_prob = float(probs[1] * 100)
     
-    # 1. GANADOR — basado en spread y modelo
+    # Calibrar con memoria
+    historical_avg_total = 220.0
+    if os.path.isfile(MEMORY_FILE):
+        try:
+            df_mem = pd.read_csv(MEMORY_FILE)
+            if len(df_mem) > 20:
+                historical_avg_total = df_mem["total_pts"].mean()
+        except:
+            pass
+    
+    # 1. GANADOR
     spread_magnitude = abs(spread_val)
     implied_conf = 50.0 + (spread_magnitude * 1.8)
     implied_conf = min(implied_conf, 73.0)
@@ -217,31 +292,31 @@ def calculate_nba_predictions(away_team: str, home_team: str, spread_val: float 
     spread_conf = round(50.0 + spread_magnitude * 1.2, 1)
     spread_conf = min(spread_conf, 65.0)
     
-    # 3. OVER/UNDER
-    ou_diff = total_val - 220.0
+    # 3. OVER/UNDER — calibrado con memoria
+    ou_diff = total_val - historical_avg_total
     ou_prediction = "OVER" if ou_diff > 5.0 else "UNDER"
     ou_conf = round(50.0 + abs(ou_diff) * 0.8, 1)
     ou_conf = min(ou_conf, 65.0)
     
-    # 4. TOTAL 3-POINTERS
+    # 4. 3-POINTERS
     threes_line = round(total_val / 18.0, 1)
-    threes_pred = "OVER" if total_val > 225 else "UNDER"
-    threes_conf = round(50.0 + abs(total_val - 220) * 0.5, 1)
+    threes_pred = "OVER" if total_val > historical_avg_total + 5 else "UNDER"
+    threes_conf = round(50.0 + abs(total_val - historical_avg_total) * 0.5, 1)
     threes_conf = min(threes_conf, 62.0)
     
-    # 5. TOTAL REBOUNDS
+    # 5. REBOUNDS
     reb_line = round(total_val / 5.0, 1)
     reb_pred = "OVER" if spread_magnitude < 5 else "UNDER"
     reb_conf = round(50.0 + spread_magnitude * 0.8, 1)
     reb_conf = min(reb_conf, 60.0)
     
-    # 6. TOTAL ASSISTS
+    # 6. ASSISTS
     ast_line = round(total_val / 9.5, 1)
-    ast_pred = "OVER" if total_val > 222 else "UNDER"
-    ast_conf = round(50.0 + abs(total_val - 220) * 0.6, 1)
+    ast_pred = "OVER" if total_val > historical_avg_total + 2 else "UNDER"
+    ast_conf = round(50.0 + abs(total_val - historical_avg_total) * 0.6, 1)
     ast_conf = min(ast_conf, 62.0)
     
-    # 7. PRIMER CUARTO
+    # 7. 1ER CUARTO
     q1_winner = winner
     q1_conf = round(win_conf - 5.0, 1)
     q1_conf = max(q1_conf, 50.0)
