@@ -882,14 +882,16 @@ def get_soccer_history(date: str = None):
                             "hit": goals_hit
                         },
                         "extraMarkets": {
-                            "Doble Oportunidad": preds["market_2_dc"],
-                            "Doble Oportunidad (Mitad)": preds["market_3_dc_ht"],
-                            "Tiros de Esquina": preds["market_4_corners"],
-                            "Fueras de Lugar": preds["market_5_offsides"],
-                            "Faltas": preds["market_6_fouls"]
+                            "Doble Oportunidad": preds.get("market_2_dc", "N/A"),
+                            "Doble Oportunidad (Mitad)": preds.get("market_3_dc_ht", "N/A"),
+                            "Tiros de Esquina": preds.get("market_4_corners", "N/A"),
+                            "Fueras de Lugar": preds.get("market_5_offsides", "N/A"),
+                            "Tarjetas/Faltas": preds.get("market_6_cards", "N/A")
                         }
                     })
                 except Exception as e:
+                    print('Error en partido:', e)
+                    import traceback; traceback.print_exc()
                     continue
         except:
             continue
