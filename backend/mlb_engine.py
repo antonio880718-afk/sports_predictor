@@ -283,15 +283,18 @@ def calculate_game_predictions(away_pitcher_name: str, home_pitcher_name: str, a
         favorite = away_team
         win_conf = away_prob
         
-    win_conf = min(win_conf, 92.0) # Random forest puede estar muy seguro
+    # Tope realista: en béisbol, nadie predice con más de 75% de confianza real
+    win_conf = min(win_conf, 75.0)
+    # Piso: si el modelo no sabe, al menos es un volado
+    win_conf = max(win_conf, 51.0)
     
     combined_era = away_stats["era"] + home_stats["era"]
     calculated_line = combined_era
     final_line = round(calculated_line * 2) / 2
     predicted_ou = "OVER" if combined_era >= 8.5 else "UNDER"
     variance = abs(combined_era - 9.0)
-    ou_conf = 50 + (variance * 5)
-    ou_conf = min(ou_conf, 78.0)
+    ou_conf = 50 + (variance * 3)
+    ou_conf = min(ou_conf, 70.0)
     
     away_k_proj = round(away_stats["k9"] * (5.5 / 9.0), 1)
     home_k_proj = round(home_stats["k9"] * (5.5 / 9.0), 1)

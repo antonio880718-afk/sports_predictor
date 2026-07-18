@@ -4,3 +4,4 @@ scikit-learn
 pandas
 requests
 google-generativeai
+joblib

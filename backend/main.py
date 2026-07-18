@@ -434,7 +434,166 @@ def get_lmb_history(date: str = None):
 
 @app.get("/api/nba/today")
 def get_nba_today():
-    return {"message": "NBA Data Loading..."}
+    """Lista de partidos de NBA de hoy con predicciones reales."""
+    import requests
+    from .nba_engine import calculate_nba_predictions
+    
+    url = "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+    try:
+        res = requests.get(url, timeout=10).json()
+        events = res.get('events', [])
+        
+        if not events:
+            return {"date": "Hoy", "games": [], "message": "No hay partidos de NBA programados para hoy."}
+        
+        processed_games = []
+        for g in events:
+            try:
+                competition = g['competitions'][0]
+                competitors = competition['competitors']
+                
+                home_team = ""
+                away_team = ""
+                home_record = ""
+                away_record = ""
+                for c in competitors:
+                    record_str = ""
+                    if c.get('records') and len(c['records']) > 0:
+                        record_str = c['records'][0].get('summary', '0-0')
+                    
+                    if c['homeAway'] == 'home':
+                        home_team = c['team']['displayName']
+                        home_record = record_str
+                    else:
+                        away_team = c['team']['displayName']
+                        away_record = record_str
+                
+                # Extraer odds si están disponibles
+                spread_val = 0.0
+                total_val = 0.0
+                if 'odds' in competition and len(competition['odds']) > 0:
+                    odds = competition['odds'][0]
+                    if 'overUnder' in odds:
+                        total_val = float(odds['overUnder'])
+                    if 'details' in odds:
+                        details = odds['details']
+                        if details and details != "EVEN":
+                            try:
+                                spread_val = float(details.split(" ")[-1])
+                            except:
+                                spread_val = 0.0
+                
+                preds = calculate_nba_predictions(away_team, home_team, spread_val, total_val)
+                
+                processed_games.append({
+                    "gamePk": g['id'],
+                    "away": {
+                        "team": away_team,
+                        "record": away_record,
+                        "ppg": preds.get("team_stats", {}).get("away", {}).get("ppg", "N/A")
+                    },
+                    "home": {
+                        "team": home_team,
+                        "record": home_record,
+                        "ppg": preds.get("team_stats", {}).get("home", {}).get("ppg", "N/A")
+                    },
+                    "nbaMarkets": preds,
+                    "winProbability": {
+                        "favorite": preds["market_1_winner"]["prediction"],
+                        "confidence": str(preds["market_1_winner"]["confidence"]) + "%"
+                    }
+                })
+            except Exception as e:
+                print(f"Error processing NBA game: {e}")
+                continue
+        
+        return {"date": "Hoy", "games": processed_games, "message": "Conectado a ESPN API + balldontlie.io en vivo."}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/nba/history")
+def get_nba_history(date: str = None):
+    """Auditoría real de NBA: compara predicciones vs resultados de ESPN."""
+    import requests
+    from .nba_engine import calculate_nba_predictions
+    from datetime import datetime, timedelta
+    
+    if not date:
+        date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    date_formatted = date.replace("-", "")
+    url = f"http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={date_formatted}"
+    
+    try:
+        res = requests.get(url, timeout=10).json()
+        events = res.get('events', [])
+        
+        history = []
+        for g in events:
+            try:
+                competition = g['competitions'][0]
+                if competition.get('status', {}).get('type', {}).get('completed') != True:
+                    continue
+                
+                competitors = competition['competitors']
+                home_team = away_team = ""
+                home_score = away_score = 0
+                
+                for c in competitors:
+                    if c['homeAway'] == 'home':
+                        home_team = c['team']['displayName']
+                        home_score = int(c.get('score', 0))
+                    else:
+                        away_team = c['team']['displayName']
+                        away_score = int(c.get('score', 0))
+                
+                if home_score == 0 and away_score == 0:
+                    continue
+                
+                real_winner = home_team if home_score > away_score else away_team
+                total_pts = home_score + away_score
+                
+                preds = calculate_nba_predictions(away_team, home_team)
+                ai_winner = preds["market_1_winner"]["prediction"]
+                ai_conf = preds["market_1_winner"]["confidence"]
+                ou_pred = preds["market_3_ou"]["prediction"]
+                ou_line = preds["market_3_ou"]["line"]
+                
+                winner_hit = (ai_winner == real_winner)
+                ou_hit = (ou_pred == "OVER" and total_pts > ou_line) or (ou_pred == "UNDER" and total_pts < ou_line)
+                
+                history.append({
+                    "gamePk": g['id'],
+                    "matchup": f"{away_team} @ {home_team}",
+                    "realScore": f"{away_score} - {home_score}",
+                    "actualWinner": real_winner,
+                    "totalPoints": total_pts,
+                    "aiPrediction": {
+                        "winner": ai_winner,
+                        "confidence": ai_conf,
+                        "hit": winner_hit
+                    },
+                    "ouPrediction": {
+                        "line": ou_line,
+                        "predicted": ou_pred,
+                        "hit": ou_hit
+                    }
+                })
+            except:
+                continue
+        
+        return {"date": date, "results": history, "message": f"Auditoría de {len(history)} partidos de NBA del {date}."}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/nba/learn")
+def force_learning_nba(date: str = None):
+    from .nba_engine import train_nba_model
+    try:
+        report = train_nba_model()
+        return report
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/api/nfl/today")
 def get_nfl_today():
@@ -638,7 +797,97 @@ def get_training_logs():
 
 @app.get("/api/soccer/history")
 def get_soccer_history(date: str = None):
-    return {"date": date, "results": [], "message": "Historial de Fútbol requiere base de datos ampliada."}
+    """Auditoría real de Soccer: compara predicciones vs resultados reales de ESPN."""
+    import requests
+    from .soccer_engine import calculate_soccer_predictions
+    from datetime import datetime, timedelta
+    
+    if not date:
+        date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    date_formatted = date.replace("-", "")
+    
+    slugs = ["eng.1", "esp.1", "ita.1", "fra.1", "ger.1", "mex.1", "arg.1", "bra.1", "usa.1"]
+    
+    history = []
+    for slug in slugs:
+        url = f"http://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard?dates={date_formatted}"
+        try:
+            res = requests.get(url, timeout=5).json()
+            events = res.get('events', [])
+            
+            for g in events:
+                try:
+                    competition = g['competitions'][0]
+                    
+                    # Solo partidos terminados
+                    if competition.get('status', {}).get('type', {}).get('completed') != True:
+                        continue
+                    
+                    competitors = competition['competitors']
+                    home_team = away_team = ""
+                    home_score = away_score = 0
+                    home_record = away_record = {}
+                    
+                    for c in competitors:
+                        record = c.get('records', [{'summary': '5-5-5'}])[0] if c.get('records') else {'summary': '5-5-5'}
+                        if c['homeAway'] == 'home':
+                            home_team = c['team']['displayName']
+                            home_score = int(c.get('score', 0))
+                            home_record = record
+                        else:
+                            away_team = c['team']['displayName']
+                            away_score = int(c.get('score', 0))
+                            away_record = record
+                    
+                    if home_score == 0 and away_score == 0 and not competition.get('status', {}).get('type', {}).get('completed'):
+                        continue
+                    
+                    # Resultado real
+                    if home_score > away_score:
+                        real_winner = home_team
+                    elif away_score > home_score:
+                        real_winner = away_team
+                    else:
+                        real_winner = "Empate"
+                    
+                    total_goals = home_score + away_score
+                    
+                    # Predicción de la IA
+                    preds = calculate_soccer_predictions(away_team, home_team, away_record, home_record, slug)
+                    
+                    ai_winner = preds["market_1_winner"]["prediction"]
+                    ai_conf = preds["market_1_winner"]["confidence"]
+                    goals_pred = preds["market_7_goals"]["prediction"]
+                    goals_line = preds["market_7_goals"]["line"]
+                    
+                    winner_hit = (ai_winner == real_winner)
+                    goals_hit = (goals_pred == "OVER" and total_goals > goals_line) or (goals_pred == "UNDER" and total_goals < goals_line)
+                    
+                    history.append({
+                        "gamePk": g['id'],
+                        "league": slug,
+                        "matchup": f"{away_team} @ {home_team}",
+                        "realScore": f"{away_score} - {home_score}",
+                        "actualWinner": real_winner,
+                        "totalGoals": total_goals,
+                        "aiPrediction": {
+                            "winner": ai_winner,
+                            "confidence": ai_conf,
+                            "hit": winner_hit
+                        },
+                        "goalsPrediction": {
+                            "line": goals_line,
+                            "predicted": goals_pred,
+                            "hit": goals_hit
+                        }
+                    })
+                except Exception as e:
+                    continue
+        except:
+            continue
+    
+    return {"date": date, "results": history, "message": f"Auditoría de {len(history)} partidos de fútbol del {date}."}
 
 @app.post("/api/soccer/learn")
 def force_learning_soccer(date: str = None):

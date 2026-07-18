@@ -79,30 +79,35 @@ def calculate_soccer_predictions(away_team: str, home_team: str, away_record: di
     # 2. Ponderación de Forma Física y Plantilla
     form_diff = home_form_pts - away_form_pts
     
-    # Features (xG Visitante, xG Local, Posesión V, Posesión L) ajustadas por Forma y Localía
-    away_xg_base = random.uniform(0.8, 1.8) + (away_form_pts / 30.0)
-    home_xg_base = (random.uniform(0.8, 1.8) + (home_form_pts / 30.0)) * home_advantage_weight
+    # Features basados en forma real, sin random en los features principales
+    away_xg_base = 0.9 + (away_form_pts / 25.0)
+    home_xg_base = (0.9 + (home_form_pts / 25.0)) * home_advantage_weight
+    
+    # Posesión estimada por forma
+    away_poss = 45.0 + (away_form_pts - home_form_pts) * 0.3
+    home_poss = 55.0 - (away_form_pts - home_form_pts) * 0.3
+    away_poss = max(35.0, min(65.0, away_poss))
+    home_poss = max(35.0, min(65.0, home_poss))
     
     features = [[
         away_xg_base,
         home_xg_base,
-        random.uniform(40.0, 60.0) - (form_diff * 0.5), # Posesión visitante baja si local es más fuerte
-        random.uniform(40.0, 60.0) + (form_diff * 0.5)
+        away_poss,
+        home_poss
     ]]
     
     probs = clf.predict_proba(features)[0]
     
-    # Ajuste manual post-procesamiento basado en la inercia analítica
     away_prob = float(probs[0] * 100)
     home_prob = float(probs[1] * 100)
     draw_prob = float(probs[2] * 100)
     
     if form_diff > 10:
-        home_prob += 10.0
-        away_prob -= 10.0
+        home_prob += 5.0
+        away_prob -= 5.0
     elif form_diff < -10:
-        away_prob += 10.0
-        home_prob -= 10.0
+        away_prob += 5.0
+        home_prob -= 5.0
         
     # Normalizar probs
     total = away_prob + home_prob + draw_prob
@@ -110,19 +115,20 @@ def calculate_soccer_predictions(away_team: str, home_team: str, away_record: di
     home_prob = (home_prob / total) * 100
     draw_prob = (draw_prob / total) * 100
 
-    # 1. GANADOR (1X2)
+    # 1. GANADOR (1X2) — sin inflar confianza
     if home_prob > away_prob and home_prob > draw_prob:
         winner = home_team
-        win_conf = min(home_prob + random.uniform(10, 20), 92.0)
+        win_conf = min(home_prob, 72.0)
         report_text = f"El modelo favorece a {home_team} por su fuerte métrica de localía (x{home_advantage_weight}) y mejor forma táctica."
     elif away_prob > home_prob and away_prob > draw_prob:
         winner = away_team
-        win_conf = min(away_prob + random.uniform(10, 20), 92.0)
+        win_conf = min(away_prob, 72.0)
         report_text = f"{away_team} rompe la ventaja de localía gracias a un Índice de Plantilla superior y racha positiva."
     else:
         winner = "Empate"
-        win_conf = min(draw_prob + random.uniform(10, 20), 85.0)
+        win_conf = min(draw_prob, 55.0)
         report_text = f"Choque de estilos equilibrado. La IA proyecta una colisión táctica en mediocampo con pocas oportunidades."
+    win_conf = max(win_conf, 35.0)
         
     # 2. DOBLE OPORTUNIDAD (Partido Completo)
     if winner == home_team:
@@ -131,34 +137,38 @@ def calculate_soccer_predictions(away_team: str, home_team: str, away_record: di
         dc_pred = f"{away_team} o Empate"
     else:
         dc_pred = f"{home_team} o {away_team} (Sin Empate)"
-    dc_conf = min(win_conf + random.uniform(8, 15), 98.0) 
+    dc_conf = min(win_conf + 12.0, 82.0)
     
     # 3. DOBLE OPORTUNIDAD (Primera Mitad)
     dc_ht_pred = "Empate (Mitad) o " + (home_team if home_prob > away_prob else away_team)
-    dc_ht_conf = round(random.uniform(70.0, 85.0), 1)
+    dc_ht_conf = round(min(win_conf + 5.0, 72.0), 1)
     
     # Impacto del Director Técnico (Estilo Ofensivo vs Defensivo)
     dt_is_offensive = (home_xg_base + away_xg_base) > 3.0
     
     # 4. TOTAL CÓRNERS
-    corners_line = random.choice([8.5, 9.5, 10.5])
+    corners_line = 9.5 if dt_is_offensive else 8.5
     corners_pred = "OVER" if dt_is_offensive else "UNDER"
-    corners_conf = round(random.uniform(65.0, 80.0), 1)
+    corners_conf = round(52.0 + abs(home_xg_base - away_xg_base) * 5.0, 1)
+    corners_conf = min(corners_conf, 68.0)
     
     # 5. FUERAS DE JUEGO (Offsides)
-    offsides_line = random.choice([2.5, 3.5, 4.5])
+    offsides_line = 3.5 if dt_is_offensive else 2.5
     offsides_pred = "OVER" if dt_is_offensive else "UNDER"
-    offsides_conf = round(random.uniform(60.0, 78.0), 1)
+    offsides_conf = round(50.0 + abs(form_diff) * 0.5, 1)
+    offsides_conf = min(offsides_conf, 65.0)
     
     # 6. TOTAL TARJETAS
-    cards_line = random.choice([3.5, 4.5, 5.5])
-    cards_pred = "OVER" if form_diff < 5 and form_diff > -5 else "UNDER" # Partidos reñidos = más tarjetas
-    cards_conf = round(random.uniform(68.0, 82.0), 1)
+    cards_line = 4.5
+    cards_pred = "OVER" if abs(form_diff) < 5 else "UNDER"
+    cards_conf = round(52.0 + abs(form_diff) * 0.8, 1)
+    cards_conf = min(cards_conf, 68.0)
     
     # 7. GOLES (OVER/UNDER)
-    goals_line = random.choice([1.5, 2.5, 3.5])
+    goals_line = 2.5
     goals_pred = "OVER" if dt_is_offensive else "UNDER"
-    goals_conf = round(random.uniform(70.0, 86.0), 1)
+    goals_conf = round(50.0 + abs(home_xg_base - away_xg_base) * 8.0, 1)
+    goals_conf = min(goals_conf, 70.0)
 
 
     

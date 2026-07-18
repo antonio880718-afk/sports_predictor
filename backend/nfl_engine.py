@@ -45,7 +45,7 @@ def train_nfl_model():
 
 def calculate_nfl_predictions(away_team: str, home_team: str, spread_val: float, total_val: float):
     """
-    Simula el análisis de 7 mercados distintos para la NFL.
+    Análisis de 7 mercados para NFL usando líneas de Vegas como señal real.
     """
     model_filename = "nfl_ai_model.pkl"
     target_model_file = os.path.join(os.path.dirname(__file__), model_filename)
@@ -58,59 +58,79 @@ def calculate_nfl_predictions(away_team: str, home_team: str, spread_val: float,
     except:
         train_nfl_model()
         clf = joblib.load(target_model_file)
-        
-    # Extraer features mock para el partido actual (esto se conectaría a la API de Stats de NFL en el futuro)
+    
+    # Usar spread y total de Vegas como señales reales
+    if spread_val == 0: spread_val = -3.0
+    if total_val == 0: total_val = 44.5
+    
+    # Features basados en las líneas de Vegas (la mejor señal pública disponible)
+    home_implied_pts = (total_val / 2.0) - (spread_val / 2.0)
+    away_implied_pts = (total_val / 2.0) + (spread_val / 2.0)
+    
     features = [[
-        random.uniform(22.0, 28.0), # away offense
-        random.uniform(20.0, 26.0), # away defense
-        random.uniform(22.0, 28.0), # home offense
-        random.uniform(20.0, 26.0), # home defense
-        1.0 # home adv
+        away_implied_pts,      # away offense implied
+        total_val - away_implied_pts, # away defense implied (points allowed)
+        home_implied_pts,      # home offense implied
+        total_val - home_implied_pts, # home defense implied
+        1.0                    # home advantage flag
     ]]
     
     probs = clf.predict_proba(features)[0]
     away_prob = float(probs[0] * 100)
     home_prob = float(probs[1] * 100)
     
-    # 1. GANADOR
-    if home_prob > away_prob:
+    # 1. GANADOR — confianza basada en spread real
+    spread_magnitude = abs(spread_val)
+    # Spread de 3 = ~57%, spread de 7 = ~65%, spread de 14 = ~75%
+    implied_conf = 50.0 + (spread_magnitude * 2.5)
+    implied_conf = min(implied_conf, 75.0)
+    implied_conf = max(implied_conf, 52.0)
+    
+    if spread_val < 0:  # Home favorito
         winner = home_team
-        win_conf = min(home_prob + random.uniform(10, 20), 92.0) # Boost para el demo
-    else:
+    elif spread_val > 0:  # Away favorito
         winner = away_team
-        win_conf = min(away_prob + random.uniform(10, 20), 92.0)
+    else:
+        winner = home_team  # Pick'em → home advantage
+        implied_conf = 52.0
+    win_conf = round(implied_conf, 1)
         
-    # 2. LINEA (SPREAD)
+    # 2. LÍNEA (SPREAD)
     spread_team = home_team if spread_val < 0 else away_team
-    if spread_val == 0: spread_val = -3.5
-    spread_conf = round(random.uniform(65.0, 85.0), 1)
+    spread_conf = round(50.0 + (spread_magnitude * 1.5), 1)
+    spread_conf = min(spread_conf, 68.0)
     
     # 3. OVER / UNDER TOTALES
-    if total_val == 0: total_val = 45.5
-    ou_prediction = "OVER" if random.choice([True, False]) else "UNDER"
-    ou_conf = round(random.uniform(60.0, 80.0), 1)
+    # Si el total es alto (>48), más probable OVER
+    ou_diff = total_val - 44.5
+    ou_prediction = "OVER" if ou_diff > 2.0 else "UNDER"
+    ou_conf = round(50.0 + abs(ou_diff) * 2.0, 1)
+    ou_conf = min(ou_conf, 65.0)
     
     # 4. TOTAL TOUCHDOWNS
     td_line = round(total_val / 7.0, 1)
     td_pred = "OVER" if ou_prediction == "OVER" else "UNDER"
-    td_conf = round(random.uniform(65.0, 78.0), 1)
+    td_conf = round(ou_conf - 3.0, 1)
     
-    # 5. YARDAS QB (Proyección)
-    qb_line = random.choice([220.5, 245.5, 260.5, 275.5])
-    qb_pred = "OVER" if random.random() > 0.4 else "UNDER"
-    qb_conf = round(random.uniform(70.0, 88.0), 1)
+    # 5. YARDAS QB (Proyección basada en el total)
+    qb_line = round(total_val * 5.2, 0) + 0.5  # Correlación con puntos totales
+    qb_pred = "OVER" if total_val > 46 else "UNDER"
+    qb_conf = round(52.0 + abs(total_val - 44.5) * 1.5, 1)
+    qb_conf = min(qb_conf, 65.0)
     
     # 6. YARDAS RB (Proyección)
-    rb_line = random.choice([55.5, 65.5, 75.5, 85.5])
-    rb_pred = "OVER" if random.random() > 0.5 else "UNDER"
-    rb_conf = round(random.uniform(68.0, 82.0), 1)
+    rb_line = 65.5 if spread_magnitude > 5 else 75.5
+    rb_pred = "OVER" if spread_magnitude < 4 else "UNDER"  # Juegos cerrados = más carrera
+    rb_conf = round(50.0 + spread_magnitude * 1.0, 1)
+    rb_conf = min(rb_conf, 62.0)
     
     # 7. PRIMERO EN ANOTAR
-    first_score_team = home_team if random.random() > 0.45 else away_team
-    first_score_conf = round(random.uniform(60.0, 75.0), 1)
+    first_score_team = winner  # El favorito suele anotar primero
+    first_score_conf = round(50.0 + spread_magnitude * 1.2, 1)
+    first_score_conf = min(first_score_conf, 62.0)
     
     return {
-        "market_1_winner": {"prediction": winner, "confidence": round(win_conf, 1)},
+        "market_1_winner": {"prediction": winner, "confidence": win_conf},
         "market_2_spread": {"line": f"{spread_team} {spread_val}", "confidence": spread_conf},
         "market_3_ou": {"line": total_val, "prediction": ou_prediction, "confidence": ou_conf},
         "market_4_tds": {"line": td_line, "prediction": td_pred, "confidence": td_conf},

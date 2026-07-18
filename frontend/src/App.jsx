@@ -33,6 +33,7 @@ function App() {
   const [performance, setPerformance] = useState(null)
 
   useEffect(() => {
+    setLearningReport(null) // Limpiar el reporte al cambiar de pestaña
     if (activeTab === 'HOY') {
       fetchGames(activeSport, activeSoccerLeague)
     } else if (activeTab === 'AUDITORIA') {
@@ -533,7 +534,7 @@ function App() {
             </div>
           )}
 
-          {activeTab === 'AUDITORIA' && (activeSport === 'MLB' || activeSport === 'LMB') && (
+          {activeTab === 'AUDITORIA' && (
             <div className="flex items-center gap-4">
               <div className="bg-slate-900/50 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-700 text-sm">
                 <span className="text-slate-400">📅 Fecha:</span>
