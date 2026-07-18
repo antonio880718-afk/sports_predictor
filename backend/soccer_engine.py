@@ -50,7 +50,7 @@ def harvest_real_results(target_date: str = None, days_back: int = 7):
     existing_keys = set()
     if os.path.isfile(MEMORY_FILE):
         try:
-            df_existing = pd.read_csv(MEMORY_FILE)
+            df_existing = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
             for _, row in df_existing.iterrows():
                 key = f"{row.get('date','')}-{row.get('away_team','')}-{row.get('home_team','')}"
                 existing_keys.add(key)
@@ -164,7 +164,7 @@ def train_soccer_model(target_date: str = None):
     _ensure_memory_file()
     
     # 2. Leer TODA la memoria
-    df = pd.read_csv(MEMORY_FILE)
+    df = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
     df = df.drop_duplicates(subset=["date", "away_team", "home_team"])
     df.to_csv(MEMORY_FILE, index=False)  # Guardar limpio
     
@@ -315,7 +315,7 @@ def calculate_soccer_predictions(away_team: str, home_team: str, away_record: di
     goals_avg_historical = 2.5
     if os.path.isfile(MEMORY_FILE):
         try:
-            df_mem = pd.read_csv(MEMORY_FILE)
+            df_mem = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
             if len(df_mem) > 20:
                 btts_historical = df_mem["btts"].mean()
                 goals_avg_historical = df_mem["total_goals"].mean()

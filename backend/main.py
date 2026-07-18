@@ -880,6 +880,13 @@ def get_soccer_history(date: str = None):
                             "line": goals_line,
                             "predicted": goals_pred,
                             "hit": goals_hit
+                        },
+                        "extraMarkets": {
+                            "Doble Oportunidad": preds["market_2_dc"],
+                            "Doble Oportunidad (Mitad)": preds["market_3_dc_ht"],
+                            "Tiros de Esquina": preds["market_4_corners"],
+                            "Fueras de Lugar": preds["market_5_offsides"],
+                            "Faltas": preds["market_6_fouls"]
                         }
                     })
                 except Exception as e:

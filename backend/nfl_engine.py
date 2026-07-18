@@ -46,7 +46,7 @@ def harvest_real_results(target_date: str = None, days_back: int = 30):
     existing_keys = set()
     if os.path.isfile(MEMORY_FILE):
         try:
-            df_existing = pd.read_csv(MEMORY_FILE)
+            df_existing = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
             for _, row in df_existing.iterrows():
                 key = f"{row.get('date','')}-{row.get('away_team','')}-{row.get('home_team','')}"
                 existing_keys.add(key)
@@ -121,7 +121,7 @@ def train_nfl_model(target_date: str = None):
     
     _ensure_memory_file()
     
-    df = pd.read_csv(MEMORY_FILE)
+    df = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
     df = df.drop_duplicates(subset=["date", "away_team", "home_team"])
     df.to_csv(MEMORY_FILE, index=False)
     
@@ -217,8 +217,8 @@ def calculate_nfl_predictions(away_team: str, home_team: str, spread_val: float,
     historical_avg_total = 44.5
     if os.path.isfile(MEMORY_FILE):
         try:
-            df_mem = pd.read_csv(MEMORY_FILE)
-            if len(df_mem) > 20:
+            df_mem = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
+            if len(df_mem) > 10:
                 historical_home_rate = df_mem["winner"].mean()
                 historical_avg_total = df_mem["total_pts"].mean()
         except:

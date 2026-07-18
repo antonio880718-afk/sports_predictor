@@ -177,7 +177,7 @@ def train_model(sport_id: int = 1, target_date: str = None):
     X_train = []
     y_train = []
     if os.path.isfile(memory_filename):
-        df = pd.read_csv(memory_filename)
+        df = pd.read_csv(memory_filename, on_bad_lines='skip')
         df = df.drop_duplicates() # Evitar aprender el mismo juego dos veces
         df.to_csv(memory_filename, index=False) # Guardar limpio
         if len(df) > 0:

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 
 function App() {
   const [activeTab, setActiveTab] = useState('HOY')
@@ -565,17 +565,23 @@ function App() {
             <h3 className="text-xl font-bold text-indigo-300 mb-4 flex items-center gap-2">
               ⚠️ Reporte de Auto-Corrección (Self-Correction Engine)
             </h3>
-            <p className="text-slate-300 mb-4">{learningReport.message}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {learningReport.insights.map((insight, idx) => (
-                <div key={idx} className="bg-slate-900/60 p-4 rounded-lg border border-slate-700">
-                  <p className="text-sm text-slate-400 mb-2">PATRÓN DE FALLO DETECTADO:</p>
-                  <p className="text-white font-medium mb-3">{insight.patternFound}</p>
-                  <p className="text-xs text-indigo-400 uppercase tracking-wider mb-1">Acción Correctiva (Pesos):</p>
-                  <p className="text-sm text-emerald-400 font-bold">{insight.actionTaken}</p>
+            {learningReport.error ? (
+              <p className="text-rose-400 mb-4 bg-rose-900/30 p-4 rounded border border-rose-500/50">Error del Motor IA: {learningReport.error}</p>
+            ) : (
+              <>
+                <p className="text-slate-300 mb-4">{learningReport.message}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {learningReport.insights && learningReport.insights.map((insight, idx) => (
+                    <div key={idx} className="bg-slate-900/60 p-4 rounded-lg border border-slate-700">
+                      <p className="text-sm text-slate-400 mb-2">PATRÓN DE FALLO DETECTADO:</p>
+                      <p className="text-white font-medium mb-3">{insight.patternFound}</p>
+                      <p className="text-xs text-indigo-400 uppercase tracking-wider mb-1">Acción Correctiva (Pesos):</p>
+                      <p className="text-sm text-emerald-400 font-bold">{insight.actionTaken}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         )}
 
@@ -666,62 +672,88 @@ function App() {
                     {history.map((h, idx) => {
                       const ouData = h.ouPrediction || h.goalsPrediction;
                       return (
-                        <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
-                          <td className="p-4">
-                            <p className="font-medium text-white">{h.matchup}</p>
-                            {h.pitchers && <p className="text-xs text-slate-400 mt-1">Abridores: {h.pitchers}</p>}
-                            {h.props && <p className="text-xs text-sky-400 mt-1">Jugador a seguir: {h.props.topHitter} (Prob Hit: {h.props.hitProb} | K's Proy: {h.props.kProj})</p>}
-                            {h.league && <p className="text-xs text-slate-400 mt-1">Liga: {h.league.toUpperCase()}</p>}
-                          </td>
-                          <td className="p-4 text-center font-bold text-lg">{h.realScore || h.totalGoals || h.totalPoints || "-"}</td>
-                          
-                          {/* Ganador */}
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <div>
-                                <p className="font-bold">{h.aiPrediction?.winner || "-"}</p>
-                                <p className="text-xs text-slate-400">
-                                  Confianza: {h.aiPrediction?.confidence || "-"}% 
-                                  {h.aiPrediction?.isSniper && <span className="text-emerald-400 ml-1">(FRANCOTIRADOR)</span>}
-                                </p>
-                              </div>
-                              {h.aiPrediction?.hit !== undefined ? (
-                                h.aiPrediction?.hit ? (
-                                  <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                                    ACIERTO
-                                  </span>
-                                ) : (
-                                  <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
-                                    FALLO
-                                  </span>
-                                )
-                              ) : null}
-                            </div>
-                          </td>
-
-                          {/* Over Under / Totales */}
-                          <td className="p-4">
-                            {ouData ? (
+                        <React.Fragment key={idx}>
+                          <tr className="hover:bg-slate-800/50 transition-colors">
+                            <td className="p-4">
+                              <p className="font-medium text-white">{h.matchup}</p>
+                              {h.pitchers && <p className="text-xs text-slate-400 mt-1">Abridores: {h.pitchers}</p>}
+                              {h.props && <p className="text-xs text-sky-400 mt-1">Jugador a seguir: {h.props.topHitter} (Prob Hit: {h.props.hitProb} | K's Proy: {h.props.kProj})</p>}
+                              {h.league && <p className="text-xs text-slate-400 mt-1">Liga: {h.league.toUpperCase()}</p>}
+                            </td>
+                            <td className="p-4 text-center font-bold text-lg">{h.realScore || h.totalGoals || h.totalPoints || "-"}</td>
+                            
+                            {/* Ganador */}
+                            <td className="p-4">
                               <div className="flex items-center gap-3">
                                 <div>
-                                  <p className="font-bold">{ouData.predicted}</p>
-                                  <p className="text-xs text-slate-400">Línea: {ouData.line}</p>
+                                  <p className="font-bold">{h.aiPrediction?.winner || "-"}</p>
+                                  <p className="text-xs text-slate-400">
+                                    Confianza: {h.aiPrediction?.confidence || "-"}% 
+                                    {h.aiPrediction?.isSniper && <span className="text-emerald-400 ml-1">(FRANCOTIRADOR)</span>}
+                                  </p>
                                 </div>
-                                {ouData.hit ? (
-                                  <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                                    ACIERTO
-                                  </span>
-                                ) : (
-                                  <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
-                                    FALLO
-                                  </span>
-                                )}
+                                {h.aiPrediction?.hit !== undefined ? (
+                                  h.aiPrediction?.hit ? (
+                                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                                      ACIERTO
+                                    </span>
+                                  ) : (
+                                    <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
+                                      FALLO
+                                    </span>
+                                  )
+                                ) : null}
                               </div>
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                        </tr>
+                            </td>
+
+                            {/* Over Under / Totales */}
+                            <td className="p-4">
+                              {ouData ? (
+                                <div className="flex items-center gap-3">
+                                  <div>
+                                    <p className="font-bold">{ouData.predicted}</p>
+                                    <p className="text-xs text-slate-400">Línea: {ouData.line}</p>
+                                  </div>
+                                  {ouData.hit !== undefined ? (
+                                    ouData.hit ? (
+                                      <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                                        ACIERTO
+                                      </span>
+                                    ) : (
+                                      <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
+                                        FALLO
+                                      </span>
+                                    )
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                          </tr>
+                          {/* Fila para los 5 mercados adicionales (si existen) */}
+                          {h.extraMarkets && (
+                            <tr className="bg-slate-900/30">
+                              <td colSpan="4" className="p-4 border-t border-slate-800/50">
+                                <p className="text-xs text-sky-400 font-bold uppercase tracking-widest mb-2">Otros Mercados Proyectados (Próximamente en Evaluación IA):</p>
+                                <div className="flex flex-wrap gap-4">
+                                  {Object.entries(h.extraMarkets).map(([marketName, marketData]) => {
+                                    if (!marketData) return null;
+                                    const pred = typeof marketData === 'object' ? marketData.prediction : marketData;
+                                    const conf = typeof marketData === 'object' ? marketData.confidence : null;
+                                    return (
+                                      <div key={marketName} className="bg-slate-800/80 px-3 py-2 rounded-lg border border-slate-700 text-xs">
+                                        <span className="text-slate-400 block mb-1">{marketName}</span>
+                                        <span className="text-white font-bold">{pred}</span>
+                                        {conf && <span className="text-emerald-400 ml-2">{conf}%</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
