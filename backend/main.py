@@ -70,10 +70,10 @@ def get_mlb_today():
             else:
                 away_k = "TBD"
                 home_k = "TBD"
-                ou_line = "Analizando..."
+                ou_line = "Esperando Abridor..."
                 ou_pred = "TBD"
                 ou_conf = "--%"
-                win_fav = "Analizando..."
+                win_fav = "Falta Abridor"
                 win_conf = "--%"
 
             processed_games.append({
@@ -309,10 +309,10 @@ def get_lmb_today():
             else:
                 away_k = "TBD"
                 home_k = "TBD"
-                ou_line = "Analizando..."
+                ou_line = "Esperando Abridor..."
                 ou_pred = "TBD"
                 ou_conf = "--%"
-                win_fav = "Analizando..."
+                win_fav = "Falta Abridor"
                 win_conf = "--%"
 
             processed_games.append({
@@ -787,15 +787,25 @@ def chat_with_ai(req: ChatRequest):
         # Intentar modelos en cascada con retry
         modelos = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]
         res = None
+        errores_log = []
         for modelo in modelos:
             res = llamar_api(modelo)
             if res.status_code == 200:
                 break
             elif res.status_code == 429:
+                errores_log.append(f"{modelo}: 429")
                 time.sleep(3)
                 res = llamar_api(modelo)
                 if res.status_code == 200:
                     break
+                else:
+                    try: err_msg = res.json().get('error', {}).get('message', '')[:50]
+                    except: err_msg = "Unknown"
+                    errores_log.append(f"{modelo} retry: {res.status_code} {err_msg}")
+            else:
+                try: err_msg = res.json().get('error', {}).get('message', '')[:50]
+                except: err_msg = "Unknown"
+                errores_log.append(f"{modelo}: {res.status_code} {err_msg}")
         
         if res and res.status_code == 200:
             resp_json = res.json()
@@ -815,8 +825,7 @@ def chat_with_ai(req: ChatRequest):
                 
             return {"response": text}
         else:
-            err = res.json() if res else {}
-            return {"response": f"Error de cuota de Google. Espera unos minutos e intenta de nuevo. ({err.get('error',{}).get('message','')[:100]})"}
+            return {"response": f"[DEBUG ERRORES]: No jaló ningún modelo. Logs: {', '.join(errores_log)}"}
             
     except Exception as e:
         return {"response": f"[ERROR INTERNO]: {str(e)}"}

@@ -137,7 +137,12 @@ function App() {
       const response = await fetch('https://sports-predictor-y4mq.onrender.com/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg.content, sport: activeSport })
+        body: JSON.stringify({ 
+            message: userMsg.content, 
+            sport: activeSport,
+            history: chatHistory,
+            live_data: games
+        })
       })
       const data = await response.json()
       setChatHistory(prev => [...prev, { role: 'ai', content: data.response }])
