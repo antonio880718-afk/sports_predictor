@@ -80,11 +80,6 @@ function App() {
   }
 
   const fetchHistory = async (sport, dateStr = auditDate) => {
-    if (sport !== 'MLB' && sport !== 'LMB') {
-      setHistory([])
-      setApiMessage("")
-      return
-    }
     setLoading(true)
     try {
       const response = await fetch(`https://sports-predictor-y4mq.onrender.com/api/${sport.toLowerCase()}/history?date=${dateStr}`)
@@ -684,21 +679,23 @@ function App() {
                           <td className="p-4">
                             <div className="flex items-center gap-3">
                               <div>
-                                <p className="font-bold">{h.aiPrediction.winner}</p>
+                                <p className="font-bold">{h.aiPrediction?.winner || "-"}</p>
                                 <p className="text-xs text-slate-400">
-                                  Confianza: {h.aiPrediction.confidence}% 
-                                  {h.aiPrediction.isSniper && <span className="text-emerald-400 ml-1">(FRANCOTIRADOR)</span>}
+                                  Confianza: {h.aiPrediction?.confidence || "-"}% 
+                                  {h.aiPrediction?.isSniper && <span className="text-emerald-400 ml-1">(FRANCOTIRADOR)</span>}
                                 </p>
                               </div>
-                              {h.aiPrediction.hit ? (
-                                <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                                  ACIERTO
-                                </span>
-                              ) : (
-                                <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
-                                  FALLO
-                                </span>
-                              )}
+                              {h.aiPrediction?.hit !== undefined ? (
+                                h.aiPrediction?.hit ? (
+                                  <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-3 py-1 rounded-full text-xs font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                                    ACIERTO
+                                  </span>
+                                ) : (
+                                  <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-xs font-bold">
+                                    FALLO
+                                  </span>
+                                )
+                              ) : null}
                             </div>
                           </td>
 
