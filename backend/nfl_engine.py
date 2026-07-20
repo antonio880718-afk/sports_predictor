@@ -18,7 +18,7 @@ MEMORY_COLUMNS = [
     "winner"  # 0=Away, 1=Home
 ]
 
-FEATURE_COLUMNS = ["away_implied", "home_defense_implied", "home_implied", "away_defense_implied", "home_adv"]
+_STANDINGS_CACHE = None
 
 def _ensure_memory_file():
     if not os.path.isfile(MEMORY_FILE):
@@ -26,11 +26,72 @@ def _ensure_memory_file():
             writer = csv.writer(f)
             writer.writerow(MEMORY_COLUMNS)
 
+def get_nfl_standings():
+    global _STANDINGS_CACHE
+    if _STANDINGS_CACHE is not None:
+        return _STANDINGS_CACHE
+        
+    url = "http://site.api.espn.com/apis/v2/sports/football/nfl/standings"
+    standings = {}
+    try:
+        res = requests.get(url, timeout=10).json()
+        
+        # Recursive search for "entries" which contains the actual team stats
+        def find_entries(data):
+            entries = []
+            if isinstance(data, dict):
+                if "entries" in data:
+                    entries.extend(data["entries"])
+                for k, v in data.items():
+                    entries.extend(find_entries(v))
+            elif isinstance(data, list):
+                for item in data:
+                    entries.extend(find_entries(item))
+            return entries
+        
+        entries = find_entries(res)
+        
+        for entry in entries:
+            team_info = entry.get("team", {})
+            name = team_info.get("displayName", "")
+            if not name:
+                continue
+                
+            stats = entry.get("stats", [])
+            stats_dict = {}
+            for s in stats:
+                stats_dict[s.get("name")] = s.get("value")
+                
+            wins = stats_dict.get("wins", 0)
+            losses = stats_dict.get("losses", 0)
+            ties = stats_dict.get("ties", 0)
+            games = stats_dict.get("gamesPlayed", wins + losses + ties)
+            if games == 0:
+                games = 1
+                
+            points_for = stats_dict.get("pointsFor", 0)
+            points_against = stats_dict.get("pointsAgainst", 0)
+            
+            standings[name] = {
+                "wins": wins,
+                "losses": losses,
+                "games": games,
+                "pointsFor": points_for,
+                "pointsAgainst": points_against,
+                "winpct": wins / games if games > 0 else 0.5
+            }
+    except Exception as e:
+        pass
+        
+    _STANDINGS_CACHE = standings
+    return standings
+
+def clamp(val, min_val=-1.0, max_val=1.0):
+    return max(min_val, min(max_val, val))
 
 def harvest_real_results(target_date: str = None, days_back: int = 30):
     """
     Descarga resultados REALES de NFL de ESPN y los almacena permanentemente.
-    Como NFL juega pocos días, buscamos más hacia atrás.
     """
     _ensure_memory_file()
     
@@ -42,7 +103,6 @@ def harvest_real_results(target_date: str = None, days_back: int = 30):
             d = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
             dates.append(d)
     
-    # Leer memoria existente para evitar duplicados
     existing_keys = set()
     if os.path.isfile(MEMORY_FILE):
         try:
@@ -89,7 +149,6 @@ def harvest_real_results(target_date: str = None, days_back: int = 30):
                     total_pts = home_score + away_score
                     spread = home_score - away_score
                     
-                    # Implied points (reconstruidos del score real)
                     home_implied = home_score
                     away_implied = away_score
                     
@@ -121,14 +180,16 @@ def train_nfl_model(target_date: str = None):
     
     _ensure_memory_file()
     
-    df = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
-    df = df.drop_duplicates(subset=["date", "away_team", "home_team"])
-    df.to_csv(MEMORY_FILE, index=False)
-    
-    total_in_memory = len(df)
+    try:
+        df = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
+        df = df.drop_duplicates(subset=["date", "away_team", "home_team"])
+        df.to_csv(MEMORY_FILE, index=False)
+        total_in_memory = len(df)
+    except:
+        df = pd.DataFrame()
+        total_in_memory = 0
     
     if total_in_memory < 10:
-        # Datos semilla para arrancar (promedios NFL reales)
         seed_data = []
         for _ in range(100):
             home_pts = random.gauss(24.0, 8.0)
@@ -141,7 +202,6 @@ def train_nfl_model(target_date: str = None):
         y = [r[-1] for r in seed_data]
         total_training = len(X)
     else:
-        # Construir features de la memoria
         X = []
         y = []
         for _, row in df.iterrows():
@@ -149,7 +209,7 @@ def train_nfl_model(target_date: str = None):
             home_imp = float(row.get("home_implied", row.get("home_pts", 24)))
             total = float(row.get("total_pts", 45))
             X.append([away_imp, total - away_imp, home_imp, total - home_imp, 1.0])
-            y.append(int(row["winner"]))
+            y.append(int(row.get("winner", 0)))
         total_training = len(X)
     
     clf = GradientBoostingClassifier(
@@ -163,9 +223,8 @@ def train_nfl_model(target_date: str = None):
     accuracy = clf.score(X, y) * 100
     joblib.dump(clf, MODEL_FILE)
     
-    # Estadísticas de memoria
     avg_total = round(df["total_pts"].mean(), 1) if total_in_memory > 0 and "total_pts" in df.columns else 0
-    home_win_pct = round((df["winner"].mean()) * 100, 1) if total_in_memory > 0 else 50
+    home_win_pct = round((df["winner"].mean()) * 100, 1) if total_in_memory > 0 and "winner" in df.columns else 50
     
     return {
         "status": "COMPLETADO",
@@ -183,101 +242,95 @@ def train_nfl_model(target_date: str = None):
     }
 
 
-def calculate_nfl_predictions(away_team: str, home_team: str, spread_val: float, total_val: float):
-    """Predicción NFL usando memoria permanente + líneas de Vegas."""
-    if not os.path.exists(MODEL_FILE):
-        train_nfl_model()
+def calculate_nfl_predictions(away_team: str, home_team: str, spread_val: float = 0.0, total_val: float = 0.0):
+    """Predicción NFL usando COMPOSITE SIGNALS + API."""
     
-    try:
-        clf = joblib.load(MODEL_FILE)
-    except:
-        train_nfl_model()
-        clf = joblib.load(MODEL_FILE)
+    standings = get_nfl_standings()
     
-    if spread_val == 0: spread_val = -3.0
+    home_stats = standings.get(home_team, {"wins": 0, "games": 1, "pointsFor": 24, "pointsAgainst": 24, "winpct": 0.5})
+    away_stats = standings.get(away_team, {"wins": 0, "games": 1, "pointsFor": 24, "pointsAgainst": 24, "winpct": 0.5})
+    
+    h_games = max(1, home_stats.get("games", 1))
+    a_games = max(1, away_stats.get("games", 1))
+    
+    h_winpct = home_stats.get("winpct", 0.5)
+    a_winpct = away_stats.get("winpct", 0.5)
+    
+    h_pf = home_stats.get("pointsFor", 24 * h_games)
+    h_pa = home_stats.get("pointsAgainst", 24 * h_games)
+    
+    a_pf = away_stats.get("pointsFor", 24 * a_games)
+    a_pa = away_stats.get("pointsAgainst", 24 * a_games)
+    
+    h_diff = (h_pf - h_pa) / h_games
+    a_diff = (a_pf - a_pa) / a_games
+    
+    h_ppg = h_pf / h_games
+    a_ppg = a_pf / a_games
+    
+    h_opp = h_pa / h_games
+    a_opp = a_pa / a_games
+    
+    # --- SIGNALS ---
+    # Signal 1: Win Percentage (0.30)
+    sig1 = clamp((h_winpct - a_winpct) * 2.0)
+    
+    # Signal 2: Point Differential (0.25)
+    sig2 = clamp((h_diff - a_diff) / 14.0)
+    
+    # Signal 3: Home Advantage (0.15)
+    sig3 = 0.14
+    
+    # Signal 4: Offensive Power (0.15)
+    sig4 = clamp((h_ppg - a_ppg) / 10.0)
+    
+    # Signal 5: Defensive Strength (0.15)
+    sig5 = clamp((a_opp - h_opp) / 7.0)
+    
+    composite = (sig1 * 0.30) + (sig2 * 0.25) + (sig3 * 0.15) + (sig4 * 0.15) + (sig5 * 0.15)
+    
+    # Winner
+    winner = home_team if composite > 0 else away_team
+    win_prob = clamp(50.0 + abs(composite) * 22.0, 50.0, 75.0)
+    
+    # Over/Under
     if total_val == 0: total_val = 44.5
-    
-    home_implied_pts = (total_val / 2.0) - (spread_val / 2.0)
-    away_implied_pts = (total_val / 2.0) + (spread_val / 2.0)
-    
-    features = [[
-        away_implied_pts,
-        total_val - away_implied_pts,
-        home_implied_pts,
-        total_val - home_implied_pts,
-        1.0
-    ]]
-    
-    probs = clf.predict_proba(features)[0]
-    away_prob = float(probs[0] * 100)
-    home_prob = float(probs[1] * 100)
-    
-    # --- Calibrar con memoria histórica ---
-    historical_home_rate = 0.55
-    historical_avg_total = 44.5
-    if os.path.isfile(MEMORY_FILE):
-        try:
-            df_mem = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
-            if len(df_mem) > 10:
-                historical_home_rate = df_mem["winner"].mean()
-                historical_avg_total = df_mem["total_pts"].mean()
-        except:
-            pass
-    
-    # 1. GANADOR
-    spread_magnitude = abs(spread_val)
-    implied_conf = 50.0 + (spread_magnitude * 2.5)
-    implied_conf = min(implied_conf, 75.0)
-    implied_conf = max(implied_conf, 52.0)
-    
-    if spread_val < 0:
-        winner = home_team
-    elif spread_val > 0:
-        winner = away_team
+    projected = h_ppg + a_ppg
+    ou_line = total_val
+    if projected > ou_line:
+        ou_pred = "OVER"
+        ou_conf = clamp(50.0 + (projected - ou_line) * 2.5, 50.0, 75.0)
     else:
-        winner = home_team
-        implied_conf = 52.0
-    win_conf = round(implied_conf, 1)
+        ou_pred = "UNDER"
+        ou_conf = clamp(50.0 + (ou_line - projected) * 2.5, 50.0, 75.0)
+        
+    # Spread
+    if spread_val == 0: spread_val = -3.0
+    proj_diff = h_diff - a_diff + 2.5
     
-    # 2. SPREAD
-    spread_team = home_team if spread_val < 0 else away_team
-    spread_conf = round(50.0 + (spread_magnitude * 1.5), 1)
-    spread_conf = min(spread_conf, 68.0)
+    if proj_diff > -spread_val:
+        spread_pred = home_team
+    else:
+        spread_pred = away_team
+        
+    spread_conf = clamp(50.0 + abs(proj_diff + spread_val) * 1.5, 50.0, 75.0)
     
-    # 3. OVER/UNDER — calibrado con memoria
-    ou_diff = total_val - historical_avg_total
-    ou_prediction = "OVER" if ou_diff > 2.0 else "UNDER"
-    ou_conf = round(50.0 + abs(ou_diff) * 2.0, 1)
-    ou_conf = min(ou_conf, 65.0)
-    
-    # 4. TOUCHDOWNS
-    td_line = round(total_val / 7.0, 1)
-    td_pred = "OVER" if ou_prediction == "OVER" else "UNDER"
-    td_conf = round(ou_conf - 3.0, 1)
-    
-    # 5. YARDAS QB
-    qb_line = round(total_val * 5.2, 0) + 0.5
-    qb_pred = "OVER" if total_val > 46 else "UNDER"
-    qb_conf = round(52.0 + abs(total_val - 44.5) * 1.5, 1)
-    qb_conf = min(qb_conf, 65.0)
-    
-    # 6. YARDAS RB
-    rb_line = 65.5 if spread_magnitude > 5 else 75.5
-    rb_pred = "OVER" if spread_magnitude < 4 else "UNDER"
-    rb_conf = round(50.0 + spread_magnitude * 1.0, 1)
-    rb_conf = min(rb_conf, 62.0)
-    
-    # 7. PRIMERO EN ANOTAR
-    first_score_team = winner
-    first_score_conf = round(50.0 + spread_magnitude * 1.2, 1)
-    first_score_conf = min(first_score_conf, 62.0)
-    
+    signals_data = {
+        "composite": round(composite, 3),
+        "win_pct_sig": round(sig1, 3),
+        "diff_sig": round(sig2, 3),
+        "home_adv_sig": round(sig3, 3),
+        "offense_sig": round(sig4, 3),
+        "defense_sig": round(sig5, 3)
+    }
+
     return {
-        "market_1_winner": {"prediction": winner, "confidence": win_conf},
-        "market_2_spread": {"line": f"{spread_team} {spread_val}", "confidence": spread_conf},
-        "market_3_ou": {"line": total_val, "prediction": ou_prediction, "confidence": ou_conf},
-        "market_4_tds": {"line": td_line, "prediction": td_pred, "confidence": td_conf},
-        "market_5_qb": {"line": qb_line, "prediction": qb_pred, "confidence": qb_conf},
-        "market_6_rb": {"line": rb_line, "prediction": rb_pred, "confidence": rb_conf},
-        "market_7_first": {"prediction": first_score_team, "confidence": first_score_conf}
+        "market_1_winner": {"prediction": winner, "confidence": round(win_prob, 1)},
+        "market_2_spread": {"prediction": spread_pred, "line": f"{spread_val}", "confidence": round(spread_conf, 1)},
+        "market_3_ou": {"prediction": ou_pred, "line": ou_line, "confidence": round(ou_conf, 1)},
+        "market_4_first_half": {"prediction": winner, "confidence": round(win_prob - 2.0, 1)},
+        "market_5_fg": {"prediction": "OVER 3.5", "confidence": 55.0},
+        "market_6_turnovers": {"prediction": "UNDER 2.5", "confidence": 54.0},
+        "market_7_sacks": {"prediction": "OVER 4.5", "confidence": 53.0},
+        "signals": signals_data
     }

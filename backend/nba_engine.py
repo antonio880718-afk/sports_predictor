@@ -18,7 +18,63 @@ MEMORY_COLUMNS = [
     "winner"  # 0=Away, 1=Home
 ]
 
-FEATURE_COLUMNS = ["away_ppg", "home_ppg", "total_est", "spread_est", "home_adv"]
+_STANDINGS_CACHE = None
+
+def _fetch_standings():
+    global _STANDINGS_CACHE
+    if _STANDINGS_CACHE is not None:
+        return _STANDINGS_CACHE
+    
+    _STANDINGS_CACHE = {}
+    try:
+        url = "http://site.api.espn.com/apis/v2/sports/basketball/nba/standings"
+        res = requests.get(url, timeout=10)
+        if res.status_code != 200:
+            return _STANDINGS_CACHE
+            
+        data = res.json()
+        
+        def _find_entries(node):
+            if isinstance(node, dict):
+                if 'entries' in node and isinstance(node['entries'], list):
+                    yield node['entries']
+                for key, value in node.items():
+                    yield from _find_entries(value)
+            elif isinstance(node, list):
+                for item in node:
+                    yield from _find_entries(item)
+                    
+        for entries_list in _find_entries(data):
+            for entry in entries_list:
+                team_name = entry.get('team', {}).get('displayName', '')
+                stats = entry.get('stats', [])
+                
+                team_data = {
+                    "wins": 0,
+                    "losses": 0,
+                    "winPercent": 0.5,
+                    "avgPointsFor": 110.0,
+                    "avgPointsAgainst": 110.0,
+                    "differential": 0.0,
+                    "streak": 0.0
+                }
+                
+                for stat in stats:
+                    name = stat.get("name")
+                    val = stat.get("value", 0)
+                    if val is None:
+                        continue
+                    if name in team_data:
+                        team_data[name] = float(val)
+                        
+                if team_name:
+                    _STANDINGS_CACHE[team_name.lower()] = team_data
+
+    except Exception as e:
+        pass
+    
+    return _STANDINGS_CACHE
+
 
 def _ensure_memory_file():
     if not os.path.isfile(MEMORY_FILE):
@@ -26,68 +82,29 @@ def _ensure_memory_file():
             writer = csv.writer(f)
             writer.writerow(MEMORY_COLUMNS)
 
-
 def get_nba_team_stats(team_name: str):
-    """Busca estadísticas reales del equipo en balldontlie.io."""
-    try:
-        res = requests.get("https://api.balldontlie.io/v1/teams", timeout=5)
-        if res.status_code != 200:
-            return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
-        
-        teams = res.json().get("data", [])
-        team_id = None
-        for t in teams:
-            if team_name.lower() in t["full_name"].lower() or team_name.lower() in t["name"].lower():
-                team_id = t["id"]
+    """Busca estadísticas reales del equipo en ESPN Standings API."""
+    cache = _fetch_standings()
+    
+    stats = {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0, "winPercent": 0.5, "differential": 0.0}
+    
+    best_match = None
+    if cache:
+        for name in cache.keys():
+            if team_name.lower() in name or name in team_name.lower():
+                best_match = name
                 break
+                
+    if best_match:
+        data = cache.get(best_match, {})
+        stats["wins"] = int(data.get("wins", 0))
+        stats["losses"] = int(data.get("losses", 0))
+        stats["ppg"] = round(data.get("avgPointsFor", 110.0), 1)
+        stats["opp_ppg"] = round(data.get("avgPointsAgainst", 110.0), 1)
+        stats["winPercent"] = data.get("winPercent", 0.5)
+        stats["differential"] = data.get("differential", 0.0)
         
-        if not team_id:
-            return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
-        
-        games_res = requests.get(
-            f"https://api.balldontlie.io/v1/games?team_ids[]={team_id}&per_page=10&seasons[]=2025",
-            timeout=5
-        )
-        
-        if games_res.status_code != 200:
-            return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
-        
-        games = games_res.json().get("data", [])
-        if not games:
-            return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
-        
-        total_pts = 0
-        total_opp = 0
-        wins = 0
-        losses = 0
-        
-        for g in games:
-            if g.get("status") != "Final":
-                continue
-            is_home = g["home_team"]["id"] == team_id
-            if is_home:
-                team_score = g.get("home_team_score", 0)
-                opp_score = g.get("visitor_team_score", 0)
-            else:
-                team_score = g.get("visitor_team_score", 0)
-                opp_score = g.get("home_team_score", 0)
-            
-            total_pts += team_score
-            total_opp += opp_score
-            if team_score > opp_score:
-                wins += 1
-            else:
-                losses += 1
-        
-        n = max(len(games), 1)
-        return {
-            "wins": wins,
-            "losses": losses,
-            "ppg": round(total_pts / n, 1),
-            "opp_ppg": round(total_opp / n, 1)
-        }
-    except Exception as e:
-        return {"wins": 20, "losses": 20, "ppg": 110.0, "opp_ppg": 110.0}
+    return stats
 
 
 def harvest_real_results(target_date: str = None, days_back: int = 14):
@@ -133,11 +150,11 @@ def harvest_real_results(target_date: str = None, days_back: int = 14):
                     home_score = away_score = 0
                     
                     for c in competitors:
-                        if c['homeAway'] == 'home':
-                            home_team = c['team']['displayName']
+                        if c.get('homeAway') == 'home':
+                            home_team = c.get('team', {}).get('displayName', '')
                             home_score = int(c.get('score', 0))
                         else:
-                            away_team = c['team']['displayName']
+                            away_team = c.get('team', {}).get('displayName', '')
                             away_score = int(c.get('score', 0))
                     
                     key = f"{date_str}-{away_team}-{home_team}"
@@ -237,100 +254,114 @@ def train_nba_model(target_date: str = None):
 
 
 def calculate_nba_predictions(away_team: str, home_team: str, spread_val: float = 0.0, total_val: float = 0.0):
-    """Predicción NBA usando memoria permanente + stats reales."""
+    """SIGNAL-BASED COMPOSITE prediction system using ESPN API."""
     if not os.path.exists(MODEL_FILE):
         train_nba_model()
-    
-    try:
-        clf = joblib.load(MODEL_FILE)
-    except:
-        train_nba_model()
-        clf = joblib.load(MODEL_FILE)
     
     # Stats reales
     away_stats = get_nba_team_stats(away_team)
     home_stats = get_nba_team_stats(home_team)
     
-    if total_val == 0:
-        total_val = away_stats["ppg"] + home_stats["ppg"]
-    if spread_val == 0:
-        spread_val = home_stats["ppg"] - away_stats["ppg"] - 2.5
+    # Calculate Signals
+    signals = []
     
-    features = [[away_stats["ppg"], home_stats["ppg"], total_val, spread_val, 1.0]]
+    # Signal 1: Win Percentage (Weight: 0.30)
+    h_wins = home_stats.get('wins', 0)
+    h_losses = home_stats.get('losses', 0)
+    a_wins = away_stats.get('wins', 0)
+    a_losses = away_stats.get('losses', 0)
     
-    probs = clf.predict_proba(features)[0]
-    away_prob = float(probs[0] * 100)
-    home_prob = float(probs[1] * 100)
+    h_winpct = h_wins / (h_wins + h_losses) if (h_wins + h_losses) > 0 else 0.5
+    a_winpct = a_wins / (a_wins + a_losses) if (a_wins + a_losses) > 0 else 0.5
+    s1_score = max(-1.0, min(1.0, (h_winpct - a_winpct) * 2.0))
+    signals.append({"name": "Win Percentage", "score": round(s1_score, 3), "weight": 0.30})
     
-    # Calibrar con memoria
-    historical_avg_total = 220.0
-    if os.path.isfile(MEMORY_FILE):
-        try:
-            df_mem = pd.read_csv(MEMORY_FILE, on_bad_lines='skip')
-            if len(df_mem) > 10:
-                historical_avg_total = df_mem["total_pts"].mean()
-        except:
-            pass
+    # Signal 2: Point Differential per Game (Weight: 0.25)
+    h_diff = home_stats.get('ppg', 0) - home_stats.get('opp_ppg', 0)
+    a_diff = away_stats.get('ppg', 0) - away_stats.get('opp_ppg', 0)
+    s2_score = max(-1.0, min(1.0, (h_diff - a_diff) / 10.0))
+    signals.append({"name": "Point Differential", "score": round(s2_score, 3), "weight": 0.25})
     
-    # 1. GANADOR
-    spread_magnitude = abs(spread_val)
-    implied_conf = 50.0 + (spread_magnitude * 1.8)
-    implied_conf = min(implied_conf, 73.0)
-    implied_conf = max(implied_conf, 51.0)
+    # Signal 3: Home Advantage (Weight: 0.15)
+    # Fixed: +0.14 composite contribution
+    s3_score = 0.9333  # 0.9333 * 0.15 = ~0.14
+    signals.append({"name": "Home Advantage", "score": round(s3_score, 3), "weight": 0.15})
     
-    if spread_val < 0:
+    # Signal 4: Scoring Power (Weight: 0.15)
+    h_ppg = home_stats.get('ppg', 0)
+    a_ppg = away_stats.get('ppg', 0)
+    s4_score = max(-1.0, min(1.0, (h_ppg - a_ppg) / 10.0))
+    signals.append({"name": "Scoring Power", "score": round(s4_score, 3), "weight": 0.15})
+    
+    # Signal 5: Defensive Rating (Weight: 0.15)
+    h_opp_ppg = home_stats.get('opp_ppg', 0)
+    a_opp_ppg = away_stats.get('opp_ppg', 0)
+    s5_score = max(-1.0, min(1.0, (a_opp_ppg - h_opp_ppg) / 8.0))
+    signals.append({"name": "Defensive Rating", "score": round(s5_score, 3), "weight": 0.15})
+    
+    # Winner
+    composite = sum(sig["score"] * sig["weight"] for sig in signals)
+    
+    if composite > 0:
         winner = home_team
-    elif spread_val > 0:
-        winner = away_team
     else:
-        winner = home_team
-        implied_conf = 52.0
-    win_conf = round(implied_conf, 1)
+        winner = away_team
+        
+    prob = 50 + abs(composite) * 22
+    win_conf = round(max(50.0, min(75.0, prob)), 1)
     
-    # 2. SPREAD
-    spread_team = home_team if spread_val < 0 else away_team
-    spread_conf = round(50.0 + spread_magnitude * 1.2, 1)
+    # Over/Under
+    projected_total = h_ppg + a_ppg
+    ou_line = round(projected_total * 2) / 2
+    
+    if projected_total > ou_line + 2:
+        ou_prediction = "OVER"
+        ou_conf = 60.0
+    elif projected_total < ou_line - 2:
+        ou_prediction = "UNDER"
+        ou_conf = 60.0
+    else:
+        ou_prediction = "OVER" if projected_total >= ou_line else "UNDER"
+        ou_conf = 52.0
+        
+    # Spread
+    projected_spread_val = (h_ppg - h_opp_ppg) - (a_ppg - a_opp_ppg) + 2.5
+    spread_val = -projected_spread_val
+    spread_line = round(spread_val * 2) / 2
+    spread_team = home_team if spread_line < 0 else away_team
+    spread_conf = round(50.0 + abs(projected_spread_val) * 1.2, 1)
     spread_conf = min(spread_conf, 65.0)
     
-    # 3. OVER/UNDER — calibrado con memoria
-    ou_diff = total_val - historical_avg_total
-    ou_prediction = "OVER" if ou_diff > 5.0 else "UNDER"
-    ou_conf = round(50.0 + abs(ou_diff) * 0.8, 1)
-    ou_conf = min(ou_conf, 65.0)
-    
     # 4. 3-POINTERS
-    threes_line = round(total_val / 18.0, 1)
-    threes_pred = "OVER" if total_val > historical_avg_total + 5 else "UNDER"
-    threes_conf = round(50.0 + abs(total_val - historical_avg_total) * 0.5, 1)
-    threes_conf = min(threes_conf, 62.0)
+    threes_line = round(projected_total / 18.0, 1)
+    threes_pred = "OVER" if h_ppg + a_ppg > 220 else "UNDER"
+    threes_conf = 55.0
     
     # 5. REBOUNDS
-    reb_line = round(total_val / 5.0, 1)
-    reb_pred = "OVER" if spread_magnitude < 5 else "UNDER"
-    reb_conf = round(50.0 + spread_magnitude * 0.8, 1)
-    reb_conf = min(reb_conf, 60.0)
+    reb_line = round(projected_total / 5.0, 1)
+    reb_pred = "OVER" if abs(projected_spread_val) < 5 else "UNDER"
+    reb_conf = 55.0
     
     # 6. ASSISTS
-    ast_line = round(total_val / 9.5, 1)
-    ast_pred = "OVER" if total_val > historical_avg_total + 2 else "UNDER"
-    ast_conf = round(50.0 + abs(total_val - historical_avg_total) * 0.6, 1)
-    ast_conf = min(ast_conf, 62.0)
+    ast_line = round(projected_total / 9.5, 1)
+    ast_pred = "OVER" if projected_total > 220 else "UNDER"
+    ast_conf = 55.0
     
     # 7. 1ER CUARTO
     q1_winner = winner
-    q1_conf = round(win_conf - 5.0, 1)
-    q1_conf = max(q1_conf, 50.0)
+    q1_conf = round(max(50.0, win_conf - 5.0), 1)
     
     return {
         "market_1_winner": {"prediction": winner, "confidence": win_conf},
-        "market_2_spread": {"line": f"{spread_team} {round(spread_val, 1)}", "confidence": spread_conf},
-        "market_3_ou": {"line": round(total_val, 1), "prediction": ou_prediction, "confidence": ou_conf},
+        "market_2_spread": {"line": f"{spread_team} {spread_line}", "confidence": spread_conf},
+        "market_3_ou": {"line": ou_line, "prediction": ou_prediction, "confidence": ou_conf},
         "market_4_threes": {"line": threes_line, "prediction": threes_pred, "confidence": threes_conf},
         "market_5_rebounds": {"line": reb_line, "prediction": reb_pred, "confidence": reb_conf},
         "market_6_assists": {"line": ast_line, "prediction": ast_pred, "confidence": ast_conf},
         "market_7_q1": {"prediction": q1_winner, "confidence": q1_conf},
         "team_stats": {
-            "away": {"ppg": away_stats["ppg"], "opp_ppg": away_stats["opp_ppg"], "record": f"{away_stats['wins']}-{away_stats['losses']}"},
-            "home": {"ppg": home_stats["ppg"], "opp_ppg": home_stats["opp_ppg"], "record": f"{home_stats['wins']}-{home_stats['losses']}"}
-        }
+            "away": {"ppg": away_stats.get("ppg", 0), "opp_ppg": away_stats.get("opp_ppg", 0), "record": f"{away_stats.get('wins', 0)}-{away_stats.get('losses', 0)}"},
+            "home": {"ppg": home_stats.get("ppg", 0), "opp_ppg": home_stats.get("opp_ppg", 0), "record": f"{home_stats.get('wins', 0)}-{home_stats.get('losses', 0)}"}
+        },
+        "signals": signals
     }
